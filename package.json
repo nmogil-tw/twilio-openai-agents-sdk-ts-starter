@@ -1,13 +1,26 @@
 {
   "dependencies": {
     "@openai/agents": "^0.0.10",
-    "dotenv": "^17.2.0"
+    "@types/node": "^24.0.12",
+    "@types/uuid": "^10.0.0",
+    "chalk": "^5.4.1",
+    "dotenv": "^17.2.0",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3",
+    "uuid": "^11.1.0",
+    "winston": "^3.17.0",
+    "zod": "^3.25.76"
   },
   "name": "twilio-openai-agents-sdk-ts-starter",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
   "scripts": {
+    "start": "tsx src/simple-main.ts",
+    "dev": "tsx watch src/simple-main.ts",
+    "start-full": "tsx src/main.ts",
+    "dev-full": "tsx watch src/main.ts",
+    "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
