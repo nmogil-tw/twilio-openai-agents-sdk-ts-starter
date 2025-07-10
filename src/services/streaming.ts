@@ -16,7 +16,7 @@ export class StreamingService {
     query: string, 
     context: CustomerContext,
     options: StreamingOptions = {}
-  ): Promise<any[]> {
+  ): Promise<{ newItems: any[], currentAgent: Agent }> {
     const { showProgress = true, enableDebugLogs = false, timeoutMs = 30000 } = options;
     const sessionId = context.sessionId || 'unknown';
     
@@ -94,16 +94,20 @@ export class StreamingService {
         await this.handleInterruptions(stream, context);
       }
 
+      // Capture the current agent after potential handoffs
+      const newAgent = stream.currentAgent ?? agent;
+
       logger.info('Query processing completed', {
         sessionId,
         agentName: agent.name,
         operation: 'query_completion'
       }, {
         newItemsCount: stream.newItems.length,
-        finalOutput: stream.finalOutput?.substring(0, 200)
+        finalOutput: stream.finalOutput?.substring(0, 200),
+        currentAgent: newAgent.name
       });
 
-      return stream.newItems;
+      return { newItems: stream.newItems, currentAgent: newAgent };
 
     } catch (error) {
       logger.error('Query processing failed', error as Error, {

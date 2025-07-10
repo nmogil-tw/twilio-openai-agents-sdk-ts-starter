@@ -29,6 +29,9 @@ export const faqAgent = new Agent({
 - Account-specific problems requiring authentication
 - Complaints requiring human intervention
 
+## Post-resolution behaviour
+When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
+
 If you cannot find the answer to a question, acknowledge this honestly and offer to connect the customer with a specialist who can help.`,
 
   inputGuardrails,

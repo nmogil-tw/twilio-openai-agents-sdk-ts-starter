@@ -17,8 +17,12 @@ export const triageAgent = new Agent({
 1. **Greet customers warmly** and gather basic information
 2. **Classify customer intent** using available tools
 3. **Route to appropriate specialist agents** based on the inquiry type
-4. **Handle simple questions directly** when appropriate
-5. **Escalate complex issues** to human agents when needed
+4. **Escalate complex issues** to human agents when needed
+
+**MANDATORY WORKFLOW (do not skip):**
+A. ALWAYS call the \`classify_intent\` tool on EVERY customer turn (not just the first one).
+B. Immediately produce a \`handoff\` item to the agent returned by the tool.
+C. Do NOT answer domain-specific questions yourself.
 
 ## Routing Guidelines:
 - 📋 **Orders/Shipping** → Order Management Agent
@@ -59,6 +63,9 @@ export const triageAgent = new Agent({
 
   // Model configuration
   model: 'gpt-4o-mini', // Use efficient model for triage
+
+  // Force tool usage to prevent bypassing classification
+  modelSettings: { toolChoice: 'required' },
 
   // Tool behavior - allow flexibility
   toolUseBehavior: {

@@ -8,7 +8,7 @@ import { logger } from '../utils/logger';
 export class ConversationService {
   private rl: any;
   private context: CustomerContext;
-  private currentAgent = triageAgent;
+  private currentAgent = triageAgent; // Kept for display purposes only
 
   constructor() {
     this.context = contextManager.createSession();
@@ -206,23 +206,21 @@ export class ConversationService {
     });
 
     try {
-      // Check if we need to route to a different agent based on keywords
-      const routingResult = this.determineAgent(input);
-      if (routingResult.agent !== this.currentAgent) {
-        this.currentAgent = routingResult.agent;
-        console.log(`\n🔀 Routing to ${this.currentAgent.name}: ${routingResult.reason}`);
-      }
-
-      // Process with current agent
-      const response = await streamingService.handleCustomerQuery(
-        this.currentAgent, 
+      // Process with triage agent (always route through triage)
+      const { newItems, currentAgent } = await streamingService.handleCustomerQuery(
+        triageAgent, 
         input, 
         this.context,
         { showProgress: true, enableDebugLogs: false }
       );
 
+      // Display routing info when switching from triage to specialist
+      if (currentAgent.name !== 'Triage Agent') {
+        console.log(`\n🔀 Routing to ${currentAgent.name}`);
+      }
+
       // Update conversation history with agent responses
-      response.forEach(item => {
+      newItems.forEach(item => {
         contextManager.addToHistory(this.context.sessionId, item);
       });
 
@@ -241,10 +239,6 @@ export class ConversationService {
     }
   }
 
-  private determineAgent(input: string): { agent: any, reason: string } {
-    // For now, always use the simple triage agent
-    return { agent: triageAgent, reason: 'Processing with main agent' };
-  }
 
   private async handleError(error: Error): Promise<void> {
     logger.error('Conversation error', error, {

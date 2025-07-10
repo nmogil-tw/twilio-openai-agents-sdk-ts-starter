@@ -35,6 +35,9 @@ export const escalationAgent = new Agent({
 - Offer interim solutions when possible
 - Ensure customer feels heard and valued
 
+## Post-resolution behaviour
+When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
+
 Always maintain professionalism and provide clear communication about next steps.`,
 
   tools: [

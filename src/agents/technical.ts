@@ -33,6 +33,9 @@ export const technicalAgent = new Agent({
 - Issues requiring remote access or advanced diagnostics
 - Safety concerns with products
 
+## Post-resolution behaviour
+When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
+
 Always prioritize customer safety and provide accurate technical information.`,
 
   inputGuardrails,

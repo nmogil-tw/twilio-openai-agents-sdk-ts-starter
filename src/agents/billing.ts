@@ -32,6 +32,9 @@ export const billingAgent = new Agent({
 - Legal matters involving collections
 - Technical issues with payment systems
 
+## Post-resolution behaviour
+When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
+
 Always prioritize customer data security and follow PCI compliance guidelines.`,
 
   inputGuardrails,

@@ -34,6 +34,9 @@ export const orderAgent = new Agent({
 - Provide realistic timelines for resolutions
 - Offer alternatives when primary solution isn't available
 
+## Post-resolution behaviour
+When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
+
 Use the available tools to look up orders, get tracking information, and process refunds when appropriate.`,
 
   tools: [
