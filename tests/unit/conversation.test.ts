@@ -1,11 +1,11 @@
 import { ConversationService } from '../../src/services/conversation';
-import { streamingService } from '../../src/services/streaming';
+import { threadingService } from '../../src/services/threading';
 import { triageAgent } from '../../src/agents/triage';
 import { orderAgent } from '../../src/agents/orders';
 
-// Mock the streaming service
-jest.mock('../../src/services/streaming');
-const mockStreamingService = streamingService as jest.Mocked<typeof streamingService>;
+// Mock the threading service
+jest.mock('../../src/services/threading');
+const mockThreadingService = threadingService as jest.Mocked<typeof threadingService>;
 
 describe('ConversationService', () => {
   let conversationService: ConversationService;
@@ -16,11 +16,13 @@ describe('ConversationService', () => {
   });
 
   describe('agent switching', () => {
-    it('should switch agents when StreamingService returns different currentAgent', async () => {
-      // Mock streaming service to return a different agent
-      mockStreamingService.handleCustomerQuery.mockResolvedValue({
+    it('should switch agents when ThreadingService returns different currentAgent', async () => {
+      // Mock threading service to return a different agent
+      mockThreadingService.handleTurn.mockResolvedValue({
         newItems: [{ role: 'assistant', content: 'I can help with your order' }],
-        currentAgent: orderAgent
+        currentAgent: orderAgent,
+        history: [],
+        response: 'I can help with your order'
       });
 
       // Mock console.log to capture routing message
@@ -42,10 +44,12 @@ describe('ConversationService', () => {
     });
 
     it('should not log routing message when agent stays the same', async () => {
-      // Mock streaming service to return the same agent
-      mockStreamingService.handleCustomerQuery.mockResolvedValue({
+      // Mock threading service to return the same agent
+      mockThreadingService.handleTurn.mockResolvedValue({
         newItems: [{ role: 'assistant', content: 'How can I help you?' }],
-        currentAgent: triageAgent
+        currentAgent: triageAgent,
+        history: [],
+        response: 'How can I help you?'
       });
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
@@ -63,9 +67,9 @@ describe('ConversationService', () => {
     });
 
     it('should handle streaming service errors', async () => {
-      // Mock streaming service to throw an error
-      mockStreamingService.handleCustomerQuery.mockRejectedValue(
-        new Error('Stream timeout')
+      // Mock threading service to throw an error
+      mockThreadingService.handleTurn.mockRejectedValue(
+        new Error('Operation timeout')
       );
 
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();

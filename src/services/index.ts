@@ -1,2 +1,2 @@
 export * from './conversation';
-export * from './streaming';
+export * from './threading';

@@ -5,6 +5,10 @@ export interface EnvironmentConfig {
   workflowName: string;
   maxTurns: number;
   streamTimeoutMs: number;
+  voice: {
+    port: number;
+    twilioWebSocketUrl: string;
+  };
 }
 
 export const initializeEnvironment = (): EnvironmentConfig => {
@@ -14,7 +18,11 @@ export const initializeEnvironment = (): EnvironmentConfig => {
     logLevel: (process.env.LOG_LEVEL as any) || 'info',
     workflowName: process.env.WORKFLOW_NAME || 'Customer Service Agent',
     maxTurns: parseInt(process.env.MAX_TURNS || '10'),
-    streamTimeoutMs: parseInt(process.env.STREAM_TIMEOUT_MS || '30000')
+    streamTimeoutMs: parseInt(process.env.STREAM_TIMEOUT_MS || '30000'),
+    voice: {
+      port: parseInt(process.env.PORT_VOICE || '3001'),
+      twilioWebSocketUrl: process.env.TWILIO_WEBSOCKET_URL || ''
+    }
   };
 
   if (!config.openaiApiKey) {

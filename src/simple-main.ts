@@ -1,8 +1,10 @@
 import 'dotenv/config';
-import { Agent, run } from '@openai/agents';
+import { Agent } from '@openai/agents';
 import { createInterface } from 'readline';
 import { initializeEnvironment } from './config/environment';
 import { logger } from './utils/logger';
+import { threadingService } from './services/threading';
+import { v4 as uuidv4 } from 'uuid';
 
 // Simple customer service agent without complex typing
 const customerServiceAgent = new Agent({
@@ -36,8 +38,16 @@ async function startConversation() {
       output: process.stdout
     });
 
+    // Generate a conversation ID for threading
+    const conversationId = uuidv4();
+    
+    logger.info('Starting threaded conversation', {
+      conversationId,
+      operation: 'conversation_start'
+    });
+
     // Display welcome message
-    console.log('🎧 Customer Service Agent Online');
+    console.log('🎧 Customer Service Agent Online (with Threading)');
     console.log('='.repeat(50));
     console.log('Hi! I\'m your AI customer service assistant.');
     console.log('I can help you with:');
@@ -47,10 +57,11 @@ async function startConversation() {
     console.log('  ❓ Company policies and procedures');
     console.log('');
     console.log('Type "exit" to end our conversation');
+    console.log('✨ This conversation uses native OpenAI threading for context persistence');
     console.log('='.repeat(50));
     console.log('');
 
-    // Conversation loop
+    // Conversation loop with threading
     while (true) {
       const userInput = await new Promise<string>((resolve) => {
         rl.question('\n👤 You: ', (input) => {
@@ -60,34 +71,43 @@ async function startConversation() {
 
       if (['exit', 'quit', 'bye', 'goodbye'].includes(userInput.toLowerCase())) {
         console.log('\n👋 Thank you for using our customer service! Have a great day!');
+        
+        // Clean up threading resources
+        await threadingService.cleanupConversation(conversationId);
         break;
       }
 
       try {
-        console.log('🔄 Processing your request...');
-        
-        // Run the agent with streaming
-        const result = await run(customerServiceAgent, userInput, { 
-          stream: true,
-          maxTurns: 5
-        });
+        // Use threading service for conversation continuity
+        const result = await threadingService.handleTurn(
+          customerServiceAgent,
+          conversationId,
+          userInput,
+          undefined, // no customer context in simple mode
+          { 
+            showProgress: true, 
+            enableDebugLogs: false,
+            stream: true,
+            timeoutMs: 30000 
+          }
+        );
 
-        // Stream the response
-        const textStream = result.toTextStream({
-          compatibleWithNodeStreams: true
-        });
+        // Handle tool approval workflow if needed
+        if (result.awaitingApprovals) {
+          console.log('\n🔔 Some actions require approval. This feature is in development.');
+          console.log('📝 Please restate your request to continue.');
+          continue;
+        }
 
-        process.stdout.write('🤖 Agent: ');
-        textStream.pipe(process.stdout);
-        
-        await result.completed;
-        console.log('\n');
+        // The response is already streamed by the threading service
+        // No additional output handling needed
 
       } catch (error) {
         console.error('\n❌ I encountered an error processing your request.');
         console.log('🔄 Please try rephrasing your question or contact human support.');
         
         logger.error('Query processing failed', error as Error, {
+          conversationId,
           operation: 'query_processing'
         });
       }

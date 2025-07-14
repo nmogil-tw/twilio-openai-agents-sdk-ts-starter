@@ -114,6 +114,94 @@ I can help you with:
 🤖 Agent: I understand you're having technical issues. Let me help troubleshoot...
 ```
 
+## Voice Channel (Twilio Integration)
+
+The platform supports voice calls through Twilio Conversation Relay, allowing customers to speak with the AI agents over the phone.
+
+### Voice Setup
+
+#### Prerequisites
+- Twilio account with a phone number
+- ngrok (for local development)
+- OpenAI API key configured
+
+#### Quick Start
+1. **Start the voice server**:
+```bash
+npm run voice:dev
+```
+
+2. **Expose to Twilio with ngrok**:
+```bash
+ngrok http 3001
+```
+
+3. **Configure Twilio WebSocket URL** in your `.env` file:
+```bash
+TWILIO_WEBSOCKET_URL=wss://your-ngrok-domain.ngrok.io/conversation-relay
+```
+
+4. **Configure your Twilio phone number**:
+
+   **Option A: Use HTTP Webhook (Recommended)**
+   - Set your phone number webhook URL to: `https://8993c7537641.ngrok-free.app/conversation-relay`
+   - The server will automatically return the correct TwiML
+
+   **Option B: Use TwiML Bin**
+   - Create a new TwiML Bin in Twilio Console
+   - Paste this TwiML:
+   ```xml
+   <?xml version="1.0" encoding="UTF-8"?>
+   <Response>
+       <Say>Connecting you to our AI assistant. Please wait.</Say>
+       <Connect>
+           <ConversationRelay url="wss://8993c7537641.ngrok-free.app/conversation-relay" />
+       </Connect>
+   </Response>
+   ```
+   - Set your phone number to use this TwiML Bin
+
+#### Voice Features
+- **🎤 Speech-to-Text**: Twilio handles voice transcription automatically
+- **🗣️ Text-to-Speech**: Agent responses are converted to natural speech
+- **🔀 Agent Routing**: Same intelligent routing as CLI - triage → specialist agents
+- **📞 DTMF Support**: Callers can press keys for quick actions (0 for human agent)
+- **⚡ Real-time Processing**: Immediate AI responses during phone calls
+- **🛡️ Same Security**: Uses identical guardrails and approval flows
+
+#### Voice Environment Variables
+```bash
+PORT_VOICE=3001                                                    # Voice server port
+TWILIO_WEBSOCKET_URL=wss://your-domain.com/conversation-relay      # Twilio WebSocket URL
+START_CHANNELS=true                                                # Enable in main.ts
+```
+
+#### Voice Architecture
+```
+Twilio Phone Call
+    ↓ (Speech → Text)
+WebSocket Connection
+    ↓
+VoiceRelayAdapter
+    ↓
+VoiceSession
+    ↓
+Same Agent System (Triage → Specialists)
+    ↓ (Text → Speech)
+Back to Caller
+```
+
+### Running Voice + CLI Together
+
+To run both voice and CLI interfaces simultaneously:
+```bash
+# Terminal 1: Start voice server
+npm run voice:dev
+
+# Terminal 2: Start CLI with channels enabled
+START_CHANNELS=true npm run dev-full
+```
+
 ## Agent Capabilities
 
 ### Triage Agent
@@ -151,6 +239,10 @@ I can help you with:
 ### Project Structure
 ```
 src/
+├── channels/         # Communication channel adapters
+│   ├── voice/       # Voice (Twilio) integration
+│   ├── ChannelAdapter.ts # Channel interface
+│   └── index.ts     # Channel registry
 ├── config/           # Environment and configuration
 ├── agents/           # Agent definitions
 ├── tools/            # Tool implementations
@@ -178,12 +270,18 @@ src/
 
 ### Environment Variables
 
+#### Core Configuration
 - `OPENAI_API_KEY` - Your OpenAI API key (required)
 - `WORKFLOW_NAME` - Name for the workflow (default: "Customer Service Agent")
 - `LOG_LEVEL` - Logging level: debug, info, warn, error (default: info)
 - `TRACING_ENABLED` - Enable SDK tracing (default: true)
 - `MAX_TURNS` - Maximum conversation turns (default: 10)
 - `STREAM_TIMEOUT_MS` - Stream timeout in milliseconds (default: 30000)
+
+#### Voice Channel Configuration
+- `PORT_VOICE` - Port for voice server (default: 3001)
+- `TWILIO_WEBSOCKET_URL` - WebSocket URL for Twilio Conversation Relay
+- `START_CHANNELS` - Enable channel adapters in main.ts (default: false)
 
 ## Features in Detail
 

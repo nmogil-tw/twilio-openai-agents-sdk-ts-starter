@@ -1,5 +1,5 @@
 import { ConversationService } from '../../src/services/conversation';
-import { streamingService } from '../../src/services/streaming';
+import { threadingService } from '../../src/services/threading';
 import { triageAgent } from '../../src/agents/triage';
 import { orderAgent } from '../../src/agents/orders';
 import { billingAgent } from '../../src/agents/billing';
@@ -21,8 +21,9 @@ describe('Agent Routing Integration Tests', () => {
       const input = 'Check order ORD_12345';
       
       try {
-        const result = await streamingService.handleCustomerQuery(
+        const result = await threadingService.handleTurn(
           triageAgent,
+          'test-session',
           input,
           {
             sessionId: 'test-session',
@@ -62,8 +63,9 @@ describe('Agent Routing Integration Tests', () => {
       const input = 'I was overcharged on my last bill';
       
       try {
-        const result = await streamingService.handleCustomerQuery(
+        const result = await threadingService.handleTurn(
           triageAgent,
+          'test-session',
           input,
           {
             sessionId: 'test-session',
@@ -97,8 +99,9 @@ describe('Agent Routing Integration Tests', () => {
       const input = 'My app keeps crashing when I try to login';
       
       try {
-        const result = await streamingService.handleCustomerQuery(
+        const result = await threadingService.handleTurn(
           triageAgent,
+          'test-session',
           input,
           {
             sessionId: 'test-session',
@@ -132,8 +135,9 @@ describe('Agent Routing Integration Tests', () => {
       const input = 'What are your store hours?';
       
       try {
-        const result = await streamingService.handleCustomerQuery(
+        const result = await threadingService.handleTurn(
           triageAgent,
+          'test-session',
           input,
           {
             sessionId: 'test-session',
@@ -171,8 +175,9 @@ describe('Agent Routing Integration Tests', () => {
       const input = 'What is the status of order ORD_12345?';
       
       try {
-        const result = await streamingService.handleCustomerQuery(
+        const result = await threadingService.handleTurn(
           triageAgent,
+          'test-session',
           input,
           {
             sessionId: 'test-session',

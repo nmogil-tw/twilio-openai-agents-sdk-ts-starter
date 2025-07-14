@@ -1,5 +1,5 @@
 import { createInterface } from 'readline';
-import { streamingService } from './streaming';
+import { threadingService } from './threading';
 import { contextManager } from '../context/manager';
 import { CustomerContext } from '../context/types';
 import { triageAgent } from '../agents/triage';
@@ -206,21 +206,29 @@ export class ConversationService {
     });
 
     try {
-      // Process with triage agent (always route through triage)
-      const { newItems, currentAgent } = await streamingService.handleCustomerQuery(
-        triageAgent, 
-        input, 
+      // Process with triage agent using native threading
+      const result = await threadingService.handleTurn(
+        triageAgent,
+        this.context.sessionId,
+        input,
         this.context,
-        { showProgress: true, enableDebugLogs: false }
+        { showProgress: true, enableDebugLogs: false, stream: true }
       );
 
+      // Handle tool approval workflow if needed
+      if (result.awaitingApprovals) {
+        console.log('\n🔔 Some actions require approval. This feature is in development.');
+        console.log('📝 Please restate your request to continue.');
+        return;
+      }
+
       // Display routing info when switching from triage to specialist
-      if (currentAgent.name !== 'Triage Agent') {
-        console.log(`\n🔀 Routing to ${currentAgent.name}`);
+      if (result.currentAgent.name !== 'Triage Agent') {
+        console.log(`\n🔀 Routing to ${result.currentAgent.name}`);
       }
 
       // Update conversation history with agent responses
-      newItems.forEach(item => {
+      result.newItems.forEach(item => {
         contextManager.addToHistory(this.context.sessionId, item);
       });
 
@@ -263,7 +271,12 @@ export class ConversationService {
       messageCount: this.context.conversationHistory.length
     });
 
+    // Clean up threading resources
+    await threadingService.cleanupConversation(this.context.sessionId);
+    
+    // Clean up context manager session
     contextManager.cleanupSession(this.context.sessionId);
+    
     this.rl.close();
   }
 }

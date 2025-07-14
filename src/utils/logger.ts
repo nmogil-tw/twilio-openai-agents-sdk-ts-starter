@@ -9,6 +9,7 @@ export enum LogLevel {
 
 export interface LogContext {
   sessionId?: string;
+  conversationId?: string;
   agentName?: string;
   toolName?: string;
   userId?: string;
@@ -18,6 +19,7 @@ export interface LogContext {
   reason?: string;
   interruptionType?: string;
   eventType?: string;
+  adapterName?: string;
 }
 
 class CustomerServiceLogger {
