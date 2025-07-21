@@ -10,6 +10,7 @@ export enum LogLevel {
 export interface LogContext {
   sessionId?: string;
   conversationId?: string;
+  subjectId?: string;
   agentName?: string;
   toolName?: string;
   userId?: string;

@@ -30,6 +30,7 @@ Triage Agent (Main Entry Point)
 - **Specialized Agents**: Handle specific types of customer requests
 - **Streaming Service**: Real-time response streaming with interruption handling
 - **Context Manager**: Session and conversation state management
+- **State Persistence**: RunState persistence for conversation continuity across restarts
 - **Tools**: Customer lookup, order management, escalation capabilities
 - **Guardrails**: Input/output validation and PII protection
 
@@ -202,6 +203,111 @@ npm run voice:dev
 START_CHANNELS=true npm run dev-full
 ```
 
+## Cross-Channel Conversation Continuity
+
+The platform provides seamless conversation continuity across different communication channels. Customers can start a conversation via SMS and continue it via Voice call (or vice versa) without losing context.
+
+### How It Works
+
+The system uses canonical **Subject IDs** to link conversations across channels:
+- **Phone-based channels** (SMS, Voice): Subject ID is derived from the phone number (e.g., `phone_+14155550100`)
+- **Same phone number** = **Same conversation context** regardless of channel
+
+### Example Scenario
+
+```bash
+# Step 1: Customer starts with SMS
+📱 SMS: "Hi, I need help with my order ORD_12345"
+🤖 Agent: "I can help with your order. Let me look that up for you..."
+
+# Step 2: Customer calls the same number
+☎️  Voice: "I'm the same customer who just texted about order ORD_12345"
+🤖 Agent: "Perfect! I have our conversation history. Your order ORD_12345 is currently..."
+```
+
+### Technical Implementation
+
+The cross-channel continuity is powered by:
+- **`SubjectResolver`**: Maps channel-specific metadata to canonical Subject IDs
+- **`ConversationManager`**: Maintains conversation context and RunState persistence keyed by Subject ID
+- **`StatePersistence`**: Stores conversation state that persists across channels and restarts
+
+#### Channel Integration
+
+**SMS Adapter** extracts Subject ID from:
+```typescript
+// Twilio SMS webhook metadata
+{
+  phone: "+14155550100",        // Caller's phone number
+  messageSid: "SM123",          // Message identifier
+  channel: "sms"
+}
+// → Resolves to: "phone_+14155550100"
+```
+
+**Voice Adapter** extracts Subject ID from:
+```typescript
+// Twilio Voice session metadata
+{
+  from: "+14155550100",         // Caller's phone number  
+  callSid: "CA456",             // Call identifier
+  channel: "voice"
+}
+// → Resolves to: "phone_+14155550100" (same as SMS!)
+```
+
+### Subject Resolution
+
+The `DefaultPhoneSubjectResolver` normalizes phone numbers to ensure consistency:
+
+```typescript
+// All these formats resolve to the same Subject ID
+const phoneFormats = [
+  "+14155550100",      // E.164 format
+  "4155550100",        // 10-digit US
+  "(415) 555-0100",    // Formatted US
+  "415-555-0100"       // Dashed US
+];
+// All → "phone_+14155550100"
+```
+
+### Configuration
+
+Enable cross-channel features by configuring multiple channels:
+
+```bash
+# Environment variables
+START_CHANNELS=true                    # Enable channel adapters
+PORT_VOICE=3001                       # Voice server port
+TWILIO_WEBSOCKET_URL=wss://...        # Voice WebSocket URL
+
+# Twilio SMS Webhook
+# Set SMS webhook to: https://your-domain.com/sms
+
+# Twilio Voice Configuration  
+# Set voice webhook to use Conversation Relay with same domain
+```
+
+### Benefits
+
+✅ **Seamless Experience**: Customers never lose conversation context when switching channels  
+✅ **Reduced Friction**: No need to repeat information already provided  
+✅ **Agent Efficiency**: Full conversation history available regardless of channel  
+✅ **Consistent State**: OpenAI RunState persists across all channels  
+
+### Testing Cross-Channel Continuity
+
+Run the integration test to verify cross-channel functionality:
+
+```bash
+npm test -- tests/integration/crossChannelContinuity.test.ts
+```
+
+The test simulates:
+1. SMS conversation initiation
+2. Voice call with same phone number
+3. Verification that context is preserved across channels
+
 ## Agent Capabilities
 
 ### Triage Agent
@@ -278,6 +384,28 @@ src/
 - `MAX_TURNS` - Maximum conversation turns (default: 10)
 - `STREAM_TIMEOUT_MS` - Stream timeout in milliseconds (default: 30000)
 
+#### Persistence Configuration
+- `PERSISTENCE_ADAPTER` - Persistence backend: file, redis, postgres (default: file)
+- `STATE_PERSISTENCE_DIR` - Directory for file-based persistence (default: ./data/conversation-states)
+- `STATE_MAX_AGE` - Maximum age for states in milliseconds (default: 86400000 / 24 hours)
+
+#### Redis Configuration (when PERSISTENCE_ADAPTER=redis)
+- `REDIS_HOST` - Redis hostname (default: localhost)
+- `REDIS_PORT` - Redis port (default: 6379)
+- `REDIS_PASSWORD` - Redis password (optional)
+- `REDIS_DB` - Redis database number (default: 0)
+- `REDIS_KEY_PREFIX` - Key prefix for Redis keys (default: runstate:)
+
+#### PostgreSQL Configuration (when PERSISTENCE_ADAPTER=postgres)
+- `DATABASE_URL` - PostgreSQL connection string (optional, overrides individual settings)
+- `POSTGRES_HOST` - PostgreSQL hostname (default: localhost)
+- `POSTGRES_PORT` - PostgreSQL port (default: 5432)
+- `POSTGRES_DATABASE` - Database name (default: runstates)
+- `POSTGRES_USERNAME` - Database username (default: postgres)
+- `POSTGRES_PASSWORD` - Database password
+- `POSTGRES_TABLE_NAME` - Table name for states (default: conversation_states)
+- `POSTGRES_SSL` - Enable SSL connection (default: false)
+
 #### Voice Channel Configuration
 - `PORT_VOICE` - Port for voice server (default: 3001)
 - `TWILIO_WEBSOCKET_URL` - WebSocket URL for Twilio Conversation Relay
@@ -309,11 +437,107 @@ src/
 - Customer information extraction
 - Context sharing between agents during handoffs
 
+### RunState Persistence
+- **Conversation Continuity**: Agent state persists across service restarts and interruptions
+- **Tool Resumption**: Multi-turn tool operations resume exactly where they left off
+- **Pluggable Storage**: File, Redis, or PostgreSQL backends via `PERSISTENCE_ADAPTER` environment variable
+- **File-based Storage**: JSON files stored in `./data/conversation-states/` by default
+- **Redis Support**: High-performance caching with automatic TTL expiration
+- **PostgreSQL Support**: Robust relational storage with indexing and cleanup
+- **Index Optimization**: Fast cleanup using `index.json` mapping for efficient state management
+- **Corruption Recovery**: Automatic detection and recovery from corrupted state files
+- **ConversationManager**: Centralized wrapper for all RunState persistence operations
+
+#### How Persistence Works
+1. **State Saving**: Every successful agent turn saves the RunState to disk
+2. **State Loading**: On conversation start, previously saved state is automatically restored
+3. **Interruption Handling**: Tool approval workflows save state before waiting for approval
+4. **Cleanup**: Expired states are automatically cleaned up based on configurable age limits
+
+#### Configuration
+
+**File Storage (default)**:
+```bash
+PERSISTENCE_ADAPTER=file
+STATE_PERSISTENCE_DIR=./data/conversation-states  # Storage directory
+STATE_MAX_AGE=86400000                            # Max age in milliseconds (24 hours)
+```
+
+**Redis Storage**:
+```bash
+PERSISTENCE_ADAPTER=redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+REDIS_PASSWORD=your-redis-password  # optional
+STATE_MAX_AGE=86400000
+```
+
+**PostgreSQL Storage**:
+```bash
+PERSISTENCE_ADAPTER=postgres
+DATABASE_URL=postgresql://user:password@localhost:5432/runstates
+# Or use individual settings:
+POSTGRES_HOST=localhost
+POSTGRES_DATABASE=runstates
+POSTGRES_USERNAME=postgres
+POSTGRES_PASSWORD=your-password
+```
+
+#### Adding Custom Persistence Adapters
+
+You can create custom persistence adapters by implementing the `RunStateStore` interface:
+
+```typescript
+import { createClient } from 'redis';
+import { RunStateStore } from './src/services/persistence/types';
+
+class RedisStateStore implements RunStateStore {
+  private client: any;
+
+  constructor(config: { host: string; port: number; password?: string }) {
+    this.client = createClient({
+      socket: { host: config.host, port: config.port },
+      password: config.password
+    });
+  }
+
+  async init(): Promise<void> {
+    await this.client.connect();
+  }
+
+  async saveState(subjectId: string, runState: string): Promise<void> {
+    const key = `runstate:${subjectId}`;
+    const value = JSON.stringify({ runState, timestamp: Date.now() });
+    await this.client.setEx(key, 24 * 60 * 60, value); // 24 hour TTL
+  }
+
+  async loadState(subjectId: string): Promise<string | null> {
+    const key = `runstate:${subjectId}`;
+    const value = await this.client.get(key);
+    if (!value) return null;
+    
+    const { runState } = JSON.parse(value);
+    return runState;
+  }
+
+  async deleteState(subjectId: string): Promise<void> {
+    const key = `runstate:${subjectId}`;
+    await this.client.del(key);
+  }
+
+  async cleanupOldStates(): Promise<number> {
+    // Redis TTL handles cleanup automatically
+    return 0;
+  }
+}
+```
+
 ### Error Handling
 - Comprehensive error handling for all operations
 - Graceful degradation on failures
 - Automatic escalation on critical errors
 - Detailed error logging for debugging
+- **State Corruption Recovery**: Automatic cleanup and fresh start when state files are corrupted
 
 ## Testing
 

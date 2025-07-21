@@ -2,21 +2,161 @@ import express from 'express';
 import expressWs from 'express-ws';
 import cors from 'cors';
 import { WebSocket } from 'ws';
-import { ChannelAdapter } from '../ChannelAdapter';
+import { BaseAdapter } from '../BaseAdapter';
 import { VoiceSession, TwilioVoiceMessage, TwilioVoiceResponse } from './voiceSession';
 import { logger } from '../../utils/logger';
 import { initializeEnvironment } from '../../config/environment';
+import { SubjectResolver } from '../../types/common';
 
 interface WebSocketWithSession extends WebSocket {
   voiceSession?: VoiceSession;
 }
 
-export class VoiceRelayAdapter implements ChannelAdapter {
+/**
+ * Voice message adapter that implements the ChannelAdapter interface for individual voice messages.
+ * This is used internally by VoiceRelayAdapter to process voice messages within WebSocket sessions.
+ */
+class VoiceMessageAdapter extends BaseAdapter {
+  constructor(subjectResolver?: SubjectResolver) {
+    super(subjectResolver);
+  }
+
+  async getUserMessage(req: TwilioVoiceMessage): Promise<string> {
+    switch (req.type) {
+      case 'prompt':
+        return req.voicePrompt || req.data?.prompt || req.data?.transcript || '';
+      case 'media':
+        return req.transcript || req.data?.transcript || '';
+      case 'dtmf':
+        return `DTMF: ${req.digits?.digit || req.data?.dtmf || ''}`;
+      default:
+        return '';
+    }
+  }
+
+  getSubjectMetadata(req: TwilioVoiceMessage & { sessionSetup?: any }): Record<string, any> {
+    const setup = req.sessionSetup;
+    return {
+      phone: setup?.from,
+      from: setup?.from,
+      callSid: setup?.callSid,
+      channel: 'voice'
+    };
+  }
+
+  protected getChannelName(): string {
+    return 'voice';
+  }
+
+  async sendResponse(ws: WebSocketWithSession, textStream: AsyncIterable<string>): Promise<void> {
+    const startTime = Date.now();
+    const { textStreamToTwilioTts } = await import('../utils/stream');
+    
+    // Convert text stream to TTS-ready format with streaming support
+    const ttsStream = textStreamToTwilioTts(textStream, {
+      maxChunkDelay: 400, // Under 500ms requirement for <2s total latency
+      minChunkSize: 15,
+      maxChunkSize: 80
+    });
+
+    // Stream TTS chunks to Twilio in real-time
+    ttsStream.on('data', (ttsChunk) => {
+      if (ws.readyState === WebSocket.OPEN) {
+        const response: TwilioVoiceResponse = {
+          type: 'text',
+          token: ttsChunk.token || '',
+          last: false
+        };
+        
+        ws.send(JSON.stringify(response));
+        
+        logger.debug('Voice TTS chunk sent', {
+          sessionId: ws.voiceSession?.getSessionId(),
+          operation: 'voice_tts_streaming'
+        }, {
+          chunkLength: ttsChunk.token?.length || 0
+        });
+      }
+    });
+
+    // Send final marker when stream ends
+    ttsStream.on('end', () => {
+      const totalLatency = Date.now() - startTime;
+      
+      if (ws.readyState === WebSocket.OPEN) {
+        const finalResponse: TwilioVoiceResponse = {
+          type: 'text',
+          token: '',
+          last: true
+        };
+        
+        ws.send(JSON.stringify(finalResponse));
+        
+        logger.info('Voice TTS stream completed', {
+          sessionId: ws.voiceSession?.getSessionId(),
+          operation: 'voice_tts_streaming'
+        }, {
+          totalLatencyMs: totalLatency,
+          latencyRequirementMet: totalLatency < 2000
+        });
+
+        // Log warning if latency exceeds 2s requirement
+        if (totalLatency >= 2000) {
+          logger.warn('Voice round-trip latency exceeded 2s requirement', {
+            sessionId: ws.voiceSession?.getSessionId(),
+            operation: 'voice_performance_warning'
+          }, {
+            actualLatencyMs: totalLatency,
+            requirementMs: 2000
+          });
+        }
+      }
+    });
+
+    // Handle stream errors
+    ttsStream.on('error', (error) => {
+      logger.error('Voice TTS streaming error', error, {
+        sessionId: ws.voiceSession?.getSessionId(),
+        operation: 'voice_tts_streaming'
+      });
+      
+      if (ws.readyState === WebSocket.OPEN) {
+        const errorResponse: TwilioVoiceResponse = {
+          type: 'text',
+          token: 'I apologize, but I\'m experiencing technical difficulties.',
+          last: true
+        };
+        
+        ws.send(JSON.stringify(errorResponse));
+      }
+    });
+  }
+}
+
+/**
+ * Legacy server interface for voice channels.
+ * Voice channels require persistent WebSocket connections, so they also need server-like functionality.
+ */
+export interface VoiceServerAdapter {
+  /** Boot the voice server / listener */
+  start(): Promise<void>;
+  /** Graceful shutdown */
+  stop?(): Promise<void>;
+  /** Get number of active sessions */
+  getActiveSessions(): number;
+}
+
+export class VoiceRelayAdapter implements VoiceServerAdapter {
   private app: express.Application;
   private wsInstance: expressWs.Instance;
   private server: any;
   private sessions = new Map<string, VoiceSession>();
   private config = initializeEnvironment();
+  private messageAdapter = new VoiceMessageAdapter();
+  
+  // Transcript batching state per session
+  private transcriptBatches = new Map<string, string[]>();
+  private batchTimeouts = new Map<string, NodeJS.Timeout>();
 
   constructor() {
     this.app = express();
@@ -181,7 +321,7 @@ export class VoiceRelayAdapter implements ChannelAdapter {
           hasData: !!message.data
         });
 
-        const response = await this.processMessage(voiceSession, message);
+        const response = await this.processMessage(voiceSession, message, ws);
         
         if (response) {
           ws.send(JSON.stringify(response));
@@ -230,7 +370,7 @@ export class VoiceRelayAdapter implements ChannelAdapter {
     });
 
     // Handle WebSocket close
-    ws.on('close', (code: number, reason: Buffer) => {
+    ws.on('close', async (code: number, reason: Buffer) => {
       // Enhanced console logging for connection close
       console.log(`\n🔌 [WEBSOCKET] Connection Closed`);
       console.log(`   Session: ${sessionId}`);
@@ -247,42 +387,141 @@ export class VoiceRelayAdapter implements ChannelAdapter {
         reason: reason.toString()
       });
 
-      // Clean up session
+      // End conversation session when WebSocket closes
+      try {
+        const { conversationManager } = await import('../../services/conversationManager');
+        await conversationManager.endSession(sessionId);
+        logger.info('Voice session ended due to WebSocket close', {
+          sessionId,
+          operation: 'voice_session_end_websocket_close'
+        });
+      } catch (endError) {
+        logger.error('Failed to end voice session after WebSocket close', endError as Error, {
+          sessionId,
+          operation: 'voice_session_end_websocket_close'
+        });
+      }
+
+      // Clean up session and transcript batching
       if (ws.voiceSession) {
         ws.voiceSession.cleanup();
         this.sessions.delete(sessionId);
+        
+        // Clean up transcript batching state
+        const timeout = this.batchTimeouts.get(sessionId);
+        if (timeout) {
+          clearTimeout(timeout);
+          this.batchTimeouts.delete(sessionId);
+        }
+        this.transcriptBatches.delete(sessionId);
       }
     });
 
+    // Handle WebSocket ping frames (heartbeat/keep-alive)
+    ws.on('ping', (data: Buffer) => {
+      logger.debug('Voice WebSocket ping received', {
+        sessionId,
+        operation: 'voice_websocket_ping'
+      }, {
+        dataLength: data.length
+      });
+
+      // Respond with pong to maintain connection
+      ws.pong(data);
+      
+      console.log(`\n🔌 [WEBSOCKET] Ping/Pong`);
+      console.log(`   Session: ${sessionId}`);
+      console.log(`   Ping Data Length: ${data.length} bytes`);
+      console.log(`   Pong Sent At: ${new Date().toISOString()}`);
+    });
+
+    // Handle WebSocket pong frames (optional - for monitoring)
+    ws.on('pong', (data: Buffer) => {
+      logger.debug('Voice WebSocket pong received', {
+        sessionId,
+        operation: 'voice_websocket_pong'
+      }, {
+        dataLength: data.length
+      });
+    });
+
     // Handle WebSocket errors
-    ws.on('error', (error: Error) => {
+    ws.on('error', async (error: Error) => {
       logger.error('Voice WebSocket error', error, {
         sessionId,
         operation: 'voice_websocket_error'
       });
 
-      // Clean up session on error
+      // End conversation session on WebSocket error
+      try {
+        const { conversationManager } = await import('../../services/conversationManager');
+        await conversationManager.endSession(sessionId);
+        logger.info('Voice session ended due to WebSocket error', {
+          sessionId,
+          operation: 'voice_session_end_websocket_error'
+        });
+      } catch (endError) {
+        logger.error('Failed to end voice session after WebSocket error', endError as Error, {
+          sessionId,
+          operation: 'voice_session_end_websocket_error'
+        });
+      }
+
+      // Clean up session and transcript batching on error
       if (ws.voiceSession) {
         ws.voiceSession.cleanup();
         this.sessions.delete(sessionId);
+        
+        // Clean up transcript batching state
+        const timeout = this.batchTimeouts.get(sessionId);
+        if (timeout) {
+          clearTimeout(timeout);
+          this.batchTimeouts.delete(sessionId);
+        }
+        this.transcriptBatches.delete(sessionId);
       }
     });
   }
 
   private async processMessage(
     session: VoiceSession, 
-    message: TwilioVoiceMessage
+    message: TwilioVoiceMessage,
+    ws: WebSocketWithSession
   ): Promise<TwilioVoiceResponse | null> {
     
     switch (message.type) {
       case 'setup':
-        // Pass the entire message as setup data for customer info extraction
+        // Store setup data in session for later use
+        session.setSetupData(message);
         return await session.handleSetup(message);
         
       case 'prompt':
-        // Twilio sends transcript in 'voicePrompt' field
-        const transcript = message.voicePrompt || message.data?.prompt || message.data?.transcript || '';
-        return await session.handlePrompt(transcript);
+        // Use the new adapter interface for message processing
+        try {
+          const messageWithSetup = {
+            ...message,
+            sessionSetup: session.getSetupData()
+          };
+          
+          // Process using the BaseAdapter pattern with the customer support agent
+          const { customerSupportAgent } = await import('../../agents/customer-support');
+          await this.messageAdapter.processRequest(messageWithSetup, ws, customerSupportAgent);
+          return null; // Response already sent via processRequest
+        } catch (error) {
+          // Fallback to legacy processing if new method fails
+          logger.warn('New adapter processing failed, falling back to legacy', {
+            sessionId: session.getSessionId(),
+            operation: 'voice_adapter_fallback'
+          }, { error: (error as Error).message });
+          
+          const transcript = message.voicePrompt || message.data?.prompt || message.data?.transcript || '';
+          return await session.handlePrompt(transcript);
+        }
+        
+      case 'media':
+        // Handle media messages with transcript batching
+        await this.handleMediaMessage(session, message, ws);
+        return null; // Response handled in batching logic
         
       case 'dtmf':
         // DTMF digits are in message.digits.digit based on the example
@@ -303,6 +542,129 @@ export class VoiceRelayAdapter implements ChannelAdapter {
           messageType: message.type
         });
         return null;
+    }
+  }
+
+  private async handleMediaMessage(
+    session: VoiceSession,
+    message: TwilioVoiceMessage,
+    ws: WebSocketWithSession
+  ): Promise<void> {
+    const sessionId = session.getSessionId();
+    const transcript = message.transcript || message.data?.transcript || '';
+    
+    // Skip processing if no transcript content
+    if (!transcript || transcript.trim().length === 0) {
+      return;
+    }
+
+    // Initialize batch for new sessions
+    if (!this.transcriptBatches.has(sessionId)) {
+      this.transcriptBatches.set(sessionId, []);
+    }
+
+    // Add transcript to batch
+    const batch = this.transcriptBatches.get(sessionId)!;
+    batch.push(transcript);
+
+    logger.debug('Media message transcript added to batch', {
+      sessionId,
+      operation: 'voice_media_batching'
+    }, {
+      transcriptLength: transcript.length,
+      batchSize: batch.length
+    });
+
+    // Clear existing timeout if any
+    const existingTimeout = this.batchTimeouts.get(sessionId);
+    if (existingTimeout) {
+      clearTimeout(existingTimeout);
+    }
+
+    // Set new timeout for 500ms silence detection
+    const timeout = setTimeout(async () => {
+      await this.processBatchedTranscripts(session, ws);
+    }, 500);
+
+    this.batchTimeouts.set(sessionId, timeout);
+  }
+
+  private async processBatchedTranscripts(
+    session: VoiceSession,
+    ws: WebSocketWithSession
+  ): Promise<void> {
+    const processingStartTime = Date.now();
+    const sessionId = session.getSessionId();
+    const batch = this.transcriptBatches.get(sessionId);
+
+    if (!batch || batch.length === 0) {
+      return;
+    }
+
+    // Combine batched transcripts
+    const combinedTranscript = batch.join(' ').trim();
+
+    logger.info('Processing batched transcripts', {
+      sessionId,
+      operation: 'voice_media_processing'
+    }, {
+      batchSize: batch.length,
+      combinedLength: combinedTranscript.length,
+      processingStartTime
+    });
+
+    // Clear batch and timeout
+    this.transcriptBatches.set(sessionId, []);
+    this.batchTimeouts.delete(sessionId);
+
+    try {
+      // Create a media message with the combined transcript for processing
+      const mediaMessage: TwilioVoiceMessage & { sessionSetup?: any } = {
+        type: 'media',
+        transcript: combinedTranscript,
+        sessionSetup: session.getSetupData()
+      };
+
+      // Process using the BaseAdapter pattern
+      const { customerSupportAgent } = await import('../../agents/customer-support');
+      await this.messageAdapter.processRequest(mediaMessage, ws, customerSupportAgent);
+
+      // Log end-to-end processing time
+      const totalProcessingTime = Date.now() - processingStartTime;
+      logger.info('Batched transcript processing completed', {
+        sessionId,
+        operation: 'voice_media_processing_complete'
+      }, {
+        totalProcessingTimeMs: totalProcessingTime,
+        latencyRequirementMet: totalProcessingTime < 2000
+      });
+
+      // Warning if processing exceeds performance requirements
+      if (totalProcessingTime >= 2000) {
+        logger.warn('Media processing exceeded 2s latency requirement', {
+          sessionId,
+          operation: 'voice_media_performance_warning'
+        }, {
+          actualProcessingTimeMs: totalProcessingTime,
+          requirementMs: 2000
+        });
+      }
+
+    } catch (error) {
+      logger.error('Failed to process batched transcripts', error as Error, {
+        sessionId,
+        operation: 'voice_media_processing'
+      });
+
+      // Send error response
+      if (ws.readyState === WebSocket.OPEN) {
+        const errorResponse: TwilioVoiceResponse = {
+          type: 'text',
+          token: 'I apologize, but I\'m having trouble processing your message. Please try again.',
+          last: true
+        };
+        ws.send(JSON.stringify(errorResponse));
+      }
     }
   }
 

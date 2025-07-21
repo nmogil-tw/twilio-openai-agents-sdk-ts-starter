@@ -27,7 +27,8 @@
     "dev-full": "tsx watch src/main.ts",
     "voice:dev": "tsx src/channels/voice/server.ts",
     "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "cleanup": "tsx scripts/cleanup-sessions.ts"
   },
   "keywords": [],
   "author": "",

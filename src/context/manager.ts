@@ -15,12 +15,14 @@ export class ContextManager {
 
   createSession(customerId?: string): CustomerContext {
     const sessionId = uuidv4();
+    const now = new Date();
     const context: CustomerContext = {
       sessionId,
       customerId,
       conversationHistory: [],
       escalationLevel: 0,
-      sessionStartTime: new Date(),
+      sessionStartTime: now,
+      lastActiveAt: now,
       resolvedIssues: [],
       metadata: {}
     };

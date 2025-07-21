@@ -1,11 +1,11 @@
-import { run, Agent, Runner, type AgentInputItem, type RunItem } from '@openai/agents';
+import { Agent, Runner, type AgentInputItem, type RunItem } from '@openai/agents';
 import { logger } from '../../utils/logger';
 import { CustomerContext } from '../../context/types';
 import { contextManager } from '../../context/manager';
 import { customerSupportAgent } from '../../agents/customer-support';
 
 export interface TwilioVoiceMessage {
-  type: 'setup' | 'prompt' | 'dtmf' | 'interrupt' | 'info';
+  type: 'setup' | 'prompt' | 'media' | 'dtmf' | 'interrupt' | 'info';
   // Setup fields
   sessionId?: string;
   callSid?: string;
@@ -13,6 +13,12 @@ export interface TwilioVoiceMessage {
   to?: string;
   // Prompt fields  
   voicePrompt?: string;
+  // Media fields for audio→text transcription
+  media?: {
+    payload: string;
+    timestamp: number;
+  };
+  transcript?: string;
   // DTMF fields
   digits?: {
     digit: string;
@@ -71,6 +77,7 @@ export class VoiceSession {
   private currentAgent: Agent = customerSupportAgent;
   private sessionId: string;
   private runner: Runner;
+  private setupData?: TwilioVoiceMessage;
 
   constructor(sessionId?: string) {
     this.sessionId = sessionId || `voice-${Date.now()}`;
@@ -82,6 +89,20 @@ export class VoiceSession {
       sessionId: this.sessionId,
       operation: 'voice_session_creation'
     });
+  }
+
+  /**
+   * Store setup data for later use by the adapter
+   */
+  setSetupData(data: TwilioVoiceMessage): void {
+    this.setupData = data;
+  }
+
+  /**
+   * Get stored setup data
+   */
+  getSetupData(): TwilioVoiceMessage | undefined {
+    return this.setupData;
   }
 
   async handleSetup(setupData?: any): Promise<TwilioVoiceResponse> {
@@ -100,6 +121,11 @@ export class VoiceSession {
       console.log(`   Call SID: ${setupData.callSid}`);
     }
     console.log(`   Time: ${new Date().toISOString()}`);
+
+    // Store setup data for the adapter
+    if (setupData) {
+      this.setSetupData(setupData);
+    }
 
     // Extract customer info from setup data if available
     if (setupData?.from) {

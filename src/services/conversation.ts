@@ -1,5 +1,7 @@
 import { createInterface } from 'readline';
+import { RunState } from '@openai/agents';
 import { threadingService } from './threading';
+import { statePersistence } from './persistence';
 import { contextManager } from '../context/manager';
 import { CustomerContext } from '../context/types';
 import { customerSupportAgent } from '../agents/customer-support';
@@ -12,6 +14,57 @@ export class ConversationService {
 
   constructor() {
     this.context = contextManager.createSession();
+  }
+
+  /**
+   * Get the RunState for a given subject/conversation ID
+   */
+  async getRunState(subjectId: string): Promise<RunState<any, any> | null> {
+    try {
+      const stateString = await statePersistence.loadState(subjectId);
+      if (!stateString) {
+        return null;
+      }
+      
+      // We'll need the agent context to deserialize properly
+      // For now, we'll return the raw state string and let the calling code handle deserialization
+      // This is a temporary limitation that would be resolved with proper agent context management
+      logger.debug('RunState loaded for conversation', {
+        subjectId,
+        operation: 'runstate_get'
+      });
+      
+      return stateString as any; // This is a temporary workaround
+    } catch (error) {
+      logger.error('Failed to get RunState', error as Error, {
+        subjectId,
+        operation: 'runstate_get'
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Save the RunState for a given subject/conversation ID
+   */
+  async saveRunState(subjectId: string, runState: RunState<any, any>): Promise<void> {
+    try {
+      const stateString = runState.toString();
+      await statePersistence.saveState(subjectId, stateString);
+      
+      logger.debug('RunState saved for conversation', {
+        subjectId,
+        operation: 'runstate_save'
+      }, {
+        stateLength: stateString.length
+      });
+    } catch (error) {
+      logger.error('Failed to save RunState', error as Error, {
+        subjectId,
+        operation: 'runstate_save'
+      });
+      throw error;
+    }
   }
 
   async start(): Promise<void> {
@@ -280,3 +333,6 @@ export class ConversationService {
     this.rl.close();
   }
 }
+
+// Create singleton instance for use by other services
+export const conversationManager = new ConversationService();

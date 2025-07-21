@@ -3,7 +3,7 @@ import { ConversationService } from './services/conversation';
 import { initializeEnvironment } from './config/environment';
 import { logger } from './utils/logger';
 import { contextManager } from './context/manager';
-import { channelAdapters } from './channels';
+import { voiceServerAdapters } from './channels';
 
 async function main() {
   try {
@@ -33,16 +33,16 @@ async function main() {
     const startChannels = process.env.START_CHANNELS === 'true';
     const startedAdapters: any[] = [];
     
-    if (startChannels && channelAdapters.length > 0) {
+    if (startChannels && voiceServerAdapters.length > 0) {
       logger.info('Starting channel adapters', {
         operation: 'channel_adapters_start'
       }, { 
-        channelCount: channelAdapters.length 
+        channelCount: voiceServerAdapters.length 
       });
 
       console.log('🔌 Starting channel adapters...');
       
-      for (const adapter of channelAdapters) {
+      for (const adapter of voiceServerAdapters) {
         try {
           await adapter.start();
           startedAdapters.push(adapter);
@@ -58,7 +58,7 @@ async function main() {
         }
       }
 
-      console.log(`✅ Started ${startedAdapters.length}/${channelAdapters.length} channel adapters`);
+      console.log(`✅ Started ${startedAdapters.length}/${voiceServerAdapters.length} channel adapters`);
     }
 
     // Start the conversation service

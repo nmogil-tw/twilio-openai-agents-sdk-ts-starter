@@ -1,6 +1,13 @@
 import { VoiceRelayAdapter } from './voice/adapter';
 
-export const channelAdapters = [
+export const voiceServerAdapters = [
   new VoiceRelayAdapter(),
-  // future: new SmsAdapter(), new WebAdapter() …
+  // future server adapters...
 ];
+
+// Export interfaces and base classes
+export { ChannelAdapter } from './ChannelAdapter';
+export { BaseAdapter } from './BaseAdapter';
+
+// Export server interface for voice channels
+export { VoiceServerAdapter } from './voice/adapter';

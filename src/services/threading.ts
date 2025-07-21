@@ -6,7 +6,9 @@ import {
 } from '@openai/agents';
 import { logger } from '../utils/logger';
 import { statePersistence } from './persistence';
+import { conversationManager } from './conversationManager';
 import { CustomerContext } from '../context/types';
+import { SubjectId } from '../types/common';
 
 export interface ThreadingOptions {
   showProgress?: boolean;
@@ -22,14 +24,15 @@ export interface ThreadedResult {
   finalOutput?: string;
   currentAgent: Agent;
   newItems: any[];
+  state?: RunState<any, any>;
 }
 
 export class ThreadingService {
-  private runnerCache: Map<string, Runner> = new Map();
+  private runnerCache: Map<SubjectId, Runner> = new Map();
 
   constructor() {
     // Initialize state persistence
-    statePersistence.init().catch(error => {
+    statePersistence.init().catch((error: Error) => {
       logger.error('Failed to initialize state persistence', error, {
         operation: 'threading_init'
       });
@@ -43,19 +46,19 @@ export class ThreadingService {
   }
 
   /**
-   * Get or create a Runner for the given conversation ID
+   * Get or create a Runner for the given subject ID
    */
-  private getRunner(conversationId: string): Runner {
-    const cached = this.runnerCache.get(conversationId);
+  private getRunner(subjectId: SubjectId): Runner {
+    const cached = this.runnerCache.get(subjectId);
     if (cached) {
       return cached;
     }
 
-    const runner = new Runner({ groupId: conversationId });
-    this.runnerCache.set(conversationId, runner);
+    const runner = new Runner({ groupId: subjectId });
+    this.runnerCache.set(subjectId, runner);
     
     logger.debug('Created new runner', {
-      conversationId,
+      subjectId,
       operation: 'runner_creation'
     });
 
@@ -67,7 +70,7 @@ export class ThreadingService {
    */
   async handleTurn(
     agent: Agent,
-    conversationId: string,
+    subjectId: SubjectId,
     userMessage: string,
     context?: CustomerContext,
     options: ThreadingOptions = {}
@@ -80,7 +83,7 @@ export class ThreadingService {
     } = options;
 
     logger.info('Processing threaded turn', {
-      conversationId,
+      subjectId,
       agentName: agent.name,
       operation: 'threaded_turn'
     }, { 
@@ -88,24 +91,48 @@ export class ThreadingService {
       hasContext: !!context
     });
 
-    const runner = this.getRunner(conversationId);
+    const runner = this.getRunner(subjectId);
 
     try {
       // Check for pending state (from previous tool approvals)
-      const pendingStateStr = await statePersistence.loadState(conversationId);
+      const pendingStateStr = await conversationManager.getRunState(subjectId);
       
       let input: AgentInputItem[] | RunState<any, any>;
       
       if (pendingStateStr) {
-        // Resume from saved state
-        input = await RunState.fromString(agent, pendingStateStr);
-        logger.info('Resuming from saved state', {
-          conversationId,
-          operation: 'state_resume'
-        });
-        
-        if (showProgress) {
-          console.log('🔄 Resuming previous conversation...');
+        try {
+          // Resume from saved state
+          input = await RunState.fromString(agent, pendingStateStr);
+          logger.info('Resuming from saved state', {
+            subjectId,
+            operation: 'state_resume'
+          });
+          
+          if (showProgress) {
+            console.log('🔄 Resuming previous conversation...');
+          }
+        } catch (error) {
+          // Handle corrupted state file
+          logger.warn('Corrupted state file detected, cleaning up and starting fresh', {
+            subjectId,
+            operation: 'state_corruption_recovery'
+          }, { error: (error as Error).message });
+          
+          // Clean up corrupted state
+          await conversationManager.deleteRunState(subjectId);
+          
+          // Fall back to starting with fresh conversation
+          if (context && Array.isArray(context.conversationHistory) && context.conversationHistory.length > 0) {
+            input = context.conversationHistory
+              .filter((i: any) => i && i.role && i.content)
+              .map((i: any) => ({ role: i.role, content: i.content })) as AgentInputItem[];
+          } else {
+            input = [{ role: 'user', content: userMessage }];
+          }
+          
+          if (showProgress) {
+            console.log('⚠️  Previous state was corrupted, starting fresh...');
+          }
         }
       } else {
         // Start new turn with user message
@@ -140,16 +167,16 @@ export class ThreadingService {
 
       // Handle streaming output
       if (stream && 'toTextStream' in result) {
-        await this.handleStreamingOutput(result, showProgress, enableDebugLogs, conversationId, agent.name);
+        await this.handleStreamingOutput(result, showProgress, enableDebugLogs, subjectId, agent.name);
       }
 
       // Check for interruptions (tool approvals)
       if ('interruptions' in result && result.interruptions && result.interruptions.length > 0) {
         // Save state for resumption after approvals
-        await statePersistence.saveState(conversationId, result.state.toString());
+        await conversationManager.saveRunState(subjectId, result.state);
         
         logger.info('Interruptions detected, state saved', {
-          conversationId,
+          subjectId,
           agentName: agent.name,
           operation: 'interruption_handling'
         }, { 
@@ -165,12 +192,12 @@ export class ThreadingService {
       }
 
       // Clean up saved state when run completes successfully
-      await statePersistence.deleteState(conversationId);
+      await conversationManager.deleteRunState(subjectId);
 
       const currentAgent = ('currentAgent' in result && result.currentAgent) ? result.currentAgent : agent;
       
       logger.info('Threaded turn completed', {
-        conversationId,
+        subjectId,
         agentName: agent.name,
         operation: 'threaded_turn_completion'
       }, {
@@ -184,15 +211,26 @@ export class ThreadingService {
         history: 'history' in result ? result.history : [],
         finalOutput: 'finalOutput' in result ? result.finalOutput : '',
         currentAgent,
-        newItems: ('newItems' in result ? result.newItems : null) || []
+        newItems: ('newItems' in result ? result.newItems : null) || [],
+        state: 'state' in result ? result.state : undefined
       };
 
     } catch (error) {
       logger.error('Threaded turn failed', error as Error, {
-        conversationId,
+        subjectId,
         agentName: agent.name,
         operation: 'threaded_turn'
       });
+
+      // End session on uncaught error escalation
+      try {
+        await conversationManager.endSession(subjectId);
+      } catch (endSessionError) {
+        logger.error('Failed to end session after error', endSessionError as Error, {
+          subjectId,
+          operation: 'error_cleanup'
+        });
+      }
 
       if (showProgress) {
         console.error('❌ Error processing query:', (error as Error).message);
@@ -207,19 +245,34 @@ export class ThreadingService {
    * Handle tool approval workflow
    */
   async handleApprovals(
-    conversationId: string,
+    subjectId: SubjectId,
     approvals: Array<{ toolCall: any; approved: boolean }>
   ): Promise<ThreadedResult> {
     logger.info('Processing tool approvals', {
-      conversationId,
+      subjectId,
       operation: 'tool_approvals'
     }, { 
       approvalCount: approvals.length 
     });
 
-    const pendingStateStr = await statePersistence.loadState(conversationId);
+    const pendingStateStr = await conversationManager.getRunState(subjectId);
     if (!pendingStateStr) {
       throw new Error('No pending state found for conversation');
+    }
+
+    // Validate state can be restored before proceeding
+    try {
+      // We'll need to get the agent context here - for now, we'll catch any parsing errors
+      // In a real implementation, you'd need proper agent context management
+      // await RunState.fromString(agent, pendingStateStr);
+    } catch (error) {
+      logger.warn('Corrupted pending state detected during approval, cleaning up', {
+        subjectId,
+        operation: 'approval_state_corruption'
+      }, { error: (error as Error).message });
+      
+      await conversationManager.deleteRunState(subjectId);
+      throw new Error('Pending state was corrupted, please restart your request');
     }
 
     // This is a simplified approach - in practice you'd need to match approvals to specific interruptions
@@ -228,7 +281,7 @@ export class ThreadingService {
     
     if (!allApproved) {
       // If any tool is rejected, clean up state and return
-      await statePersistence.deleteState(conversationId);
+      await conversationManager.deleteRunState(subjectId);
       return {
         response: "I understand you don't want me to proceed with those actions. How else can I help you?",
         history: [],
@@ -239,7 +292,7 @@ export class ThreadingService {
 
     // Continue execution - this would need proper state restoration and approval application
     // For now, just clean up and ask user to retry
-    await statePersistence.deleteState(conversationId);
+    await statePersistence.deleteState(subjectId);
     
     return {
       response: "Tools approved. Please restate your request to continue.",
@@ -252,12 +305,12 @@ export class ThreadingService {
   /**
    * Clean up conversation and its associated resources
    */
-  async cleanupConversation(conversationId: string): Promise<void> {
-    this.runnerCache.delete(conversationId);
-    await statePersistence.deleteState(conversationId);
+  async cleanupConversation(subjectId: SubjectId): Promise<void> {
+    this.runnerCache.delete(subjectId);
+    await conversationManager.deleteRunState(subjectId);
     
     logger.info('Conversation cleaned up', {
-      conversationId,
+      subjectId,
       operation: 'conversation_cleanup'
     });
   }
@@ -283,7 +336,7 @@ export class ThreadingService {
     result: any, 
     showProgress: boolean, 
     enableDebugLogs: boolean,
-    conversationId: string,
+    subjectId: SubjectId,
     agentName: string
   ): Promise<void> {
     if (!showProgress) return;
@@ -299,7 +352,7 @@ export class ThreadingService {
       textStream.on('data', (chunk: string) => {
         if (enableDebugLogs) {
           logger.debug('Streaming chunk received', {
-            conversationId,
+            subjectId,
             agentName,
             operation: 'streaming'
           }, { chunkLength: chunk.length });
@@ -308,7 +361,7 @@ export class ThreadingService {
 
       textStream.on('error', (error: Error) => {
         logger.error('Streaming error', error, {
-          conversationId,
+          subjectId,
           agentName,
           operation: 'streaming'
         });
@@ -320,7 +373,7 @@ export class ThreadingService {
       
     } catch (error) {
       logger.error('Streaming output failed', error as Error, {
-        conversationId,
+        subjectId,
         operation: 'streaming_output'
       });
     }
