@@ -1,6 +1,7 @@
 import { Agent } from '@openai/agents';
-import { inputGuardrails } from '../guardrails/input';
-import { outputGuardrails } from '../guardrails/output';
+import { inputGuardrails } from '../../guardrails/input';
+import { outputGuardrails } from '../../guardrails/output';
+import { sendSmsTool } from '../../tools/sms';
 
 export const billingAgent = new Agent({
   name: 'Billing Agent',
@@ -36,6 +37,10 @@ export const billingAgent = new Agent({
 When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
 
 Always prioritize customer data security and follow PCI compliance guidelines.`,
+
+  tools: [
+    sendSmsTool
+  ],
 
   inputGuardrails,
   outputGuardrails,

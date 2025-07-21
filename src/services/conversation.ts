@@ -2,13 +2,13 @@ import { createInterface } from 'readline';
 import { threadingService } from './threading';
 import { contextManager } from '../context/manager';
 import { CustomerContext } from '../context/types';
-import { triageAgent } from '../agents/triage';
+import { customerSupportAgent } from '../agents/customer-support';
 import { logger } from '../utils/logger';
 
 export class ConversationService {
   private rl: any;
   private context: CustomerContext;
-  private currentAgent = triageAgent; // Kept for display purposes only
+  private currentAgent = customerSupportAgent; // Kept for display purposes only
 
   constructor() {
     this.context = contextManager.createSession();
@@ -208,7 +208,7 @@ export class ConversationService {
     try {
       // Process with triage agent using native threading
       const result = await threadingService.handleTurn(
-        triageAgent,
+        customerSupportAgent,
         this.context.sessionId,
         input,
         this.context,

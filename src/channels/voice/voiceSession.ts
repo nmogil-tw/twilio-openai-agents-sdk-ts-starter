@@ -2,7 +2,7 @@ import { run, Agent, Runner, type AgentInputItem, type RunItem } from '@openai/a
 import { logger } from '../../utils/logger';
 import { CustomerContext } from '../../context/types';
 import { contextManager } from '../../context/manager';
-import { triageAgent } from '../../agents/triage';
+import { customerSupportAgent } from '../../agents/customer-support';
 
 export interface TwilioVoiceMessage {
   type: 'setup' | 'prompt' | 'dtmf' | 'interrupt' | 'info';
@@ -68,7 +68,7 @@ function getRunItemLabel(item: RunItem): string {
 
 export class VoiceSession {
   private context: CustomerContext;
-  private currentAgent: Agent = triageAgent;
+  private currentAgent: Agent = customerSupportAgent;
   private sessionId: string;
   private runner: Runner;
 

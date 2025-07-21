@@ -1,5 +1,6 @@
 import { Agent } from '@openai/agents';
-import { simpleCustomerLookupTool, simpleOrderLookupTool, simpleEscalationTool } from '../tools/simple-tools';
+import { simpleCustomerLookupTool, simpleOrderLookupTool, simpleEscalationTool } from '../../tools/simple-tools';
+import { sendSmsTool } from '../../tools/sms';
 
 export const simpleTriageAgent = new Agent({
   name: 'Customer Service Triage Agent',
@@ -33,7 +34,8 @@ Use the available tools when you need to look up specific information about cust
   tools: [
     simpleCustomerLookupTool,
     simpleOrderLookupTool,
-    simpleEscalationTool
+    simpleEscalationTool,
+    sendSmsTool
   ],
 
   model: 'gpt-4o-mini'

@@ -1,5 +1,5 @@
 import { tool } from '@openai/agents';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { logger } from '../utils/logger';
 import { CustomerData } from '../context/types';
 

@@ -1,6 +1,7 @@
 import { Agent } from '@openai/agents';
-import { inputGuardrails } from '../guardrails/input';
-import { outputGuardrails } from '../guardrails/output';
+import { inputGuardrails } from '../../guardrails/input';
+import { outputGuardrails } from '../../guardrails/output';
+import { sendSmsTool } from '../../tools/sms';
 
 export const faqAgent = new Agent({
   name: 'FAQ Agent',
@@ -33,6 +34,10 @@ export const faqAgent = new Agent({
 When you have fully addressed the customer's request **emit a \`handoff\` item** back to **Triage Agent** so that future messages are routed appropriately.
 
 If you cannot find the answer to a question, acknowledge this honestly and offer to connect the customer with a specialist who can help.`,
+
+  tools: [
+    sendSmsTool
+  ],
 
   inputGuardrails,
   outputGuardrails,

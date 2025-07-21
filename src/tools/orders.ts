@@ -1,5 +1,5 @@
 import { tool } from '@openai/agents';
-import { z } from 'zod';
+import { z } from 'zod/v3';
 import { logger } from '../utils/logger';
 import { OrderData } from '../context/types';
 
@@ -174,7 +174,7 @@ export const processRefundTool = tool({
     amount: z.number().describe('The refund amount'),
     reason: z.string().describe('The reason for the refund')
   }),
-  needsApproval: async ({ amount }: { amount: number }) => {
+  needsApproval: async (_runContext, { amount }: { amount: number }) => {
     // Require approval for refunds over $100
     return amount > 100;
   },

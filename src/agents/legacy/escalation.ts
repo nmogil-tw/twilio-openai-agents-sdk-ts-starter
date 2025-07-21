@@ -1,7 +1,8 @@
 import { Agent } from '@openai/agents';
-import { escalateToHumanTool } from '../tools/escalation';
-import { inputGuardrails } from '../guardrails/input';
-import { outputGuardrails } from '../guardrails/output';
+import { escalateToHumanTool } from '../../tools/escalation';
+import { sendSmsTool } from '../../tools/sms';
+import { inputGuardrails } from '../../guardrails/input';
+import { outputGuardrails } from '../../guardrails/output';
 
 export const escalationAgent = new Agent({
   name: 'Escalation Agent',
@@ -41,7 +42,8 @@ When you have fully addressed the customer's request **emit a \`handoff\` item**
 Always maintain professionalism and provide clear communication about next steps.`,
 
   tools: [
-    escalateToHumanTool
+    escalateToHumanTool,
+    sendSmsTool
   ],
 
   inputGuardrails,

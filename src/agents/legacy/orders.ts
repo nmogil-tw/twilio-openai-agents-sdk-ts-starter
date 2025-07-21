@@ -1,7 +1,8 @@
 import { Agent } from '@openai/agents';
-import { orderLookupTool, trackingTool, processRefundTool } from '../tools/orders';
-import { inputGuardrails } from '../guardrails/input';
-import { outputGuardrails } from '../guardrails/output';
+import { orderLookupTool, trackingTool, processRefundTool } from '../../tools/orders';
+import { sendSmsTool } from '../../tools/sms';
+import { inputGuardrails } from '../../guardrails/input';
+import { outputGuardrails } from '../../guardrails/output';
 
 export const orderAgent = new Agent({
   name: 'Order Management Agent',
@@ -42,7 +43,8 @@ Use the available tools to look up orders, get tracking information, and process
   tools: [
     orderLookupTool,
     trackingTool,
-    processRefundTool
+    processRefundTool,
+    sendSmsTool
   ],
 
   inputGuardrails,

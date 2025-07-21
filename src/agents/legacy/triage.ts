@@ -1,7 +1,8 @@
 import { Agent } from '@openai/agents';
-import { customerLookupTool, intentClassificationTool } from '../tools/customer';
-import { inputGuardrails } from '../guardrails/input';
-import { outputGuardrails } from '../guardrails/output';
+import { customerLookupTool, intentClassificationTool } from '../../tools/customer';
+import { sendSmsTool } from '../../tools/sms';
+import { inputGuardrails } from '../../guardrails/input';
+import { outputGuardrails } from '../../guardrails/output';
 import { faqAgent } from './faq';
 import { orderAgent } from './orders';
 import { billingAgent } from './billing';
@@ -54,7 +55,8 @@ C. Do NOT answer domain-specific questions yourself.
   // Tools for customer lookup and intent classification
   tools: [
     customerLookupTool,
-    intentClassificationTool
+    intentClassificationTool,
+    sendSmsTool
   ],
 
   // Apply guardrails
