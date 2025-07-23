@@ -270,8 +270,7 @@ export class ConversationService {
 
       // Handle tool approval workflow if needed
       if (result.awaitingApprovals) {
-        console.log('\n🔔 Some actions require approval. This feature is in development.');
-        console.log('📝 Please restate your request to continue.');
+        await this.handleAwaitingApprovals();
         return;
       }
 
@@ -300,6 +299,54 @@ export class ConversationService {
     }
   }
 
+
+  private async handleAwaitingApprovals(): Promise<void> {
+    console.log('\n🔔 Actions Requiring Approval');
+    console.log('='.repeat(40));
+    console.log('Some tools require your approval before proceeding.');
+    console.log('');
+    
+    try {
+      // Get the pending state to extract tool call information
+      const pendingStateStr = await statePersistence.loadState(this.context.sessionId);
+      if (pendingStateStr) {
+        // For development/CLI, we'll show a simplified approval interface
+        console.log('💡 CLI Approval Interface (Development)');
+        console.log('To approve tools, create a JSON file like this:');
+        console.log('');
+        console.log('Example approval.json:');
+        console.log('  {');
+        console.log('    "subjectId": "' + this.context.sessionId + '",');
+        console.log('    "decisions": [');
+        console.log('      { "toolCallId": "call_123", "approved": true }');
+        console.log('    ]');
+        console.log('  }');
+        console.log('');
+        console.log('Then POST to: http://localhost:3001/approvals');
+        console.log('curl -X POST http://localhost:3001/approvals \\');
+        console.log('  -H "Content-Type: application/json" \\');
+        console.log('  -d @approval.json');
+        console.log('');
+        console.log('Or you can restart and try a different approach.');
+        
+        logger.info('CLI approval interface displayed', {
+          sessionId: this.context.sessionId,
+          operation: 'cli_approval_interface'
+        });
+      } else {
+        console.log('⚠️  No pending state found. Please restart your request.');
+      }
+    } catch (error) {
+      logger.error('Failed to display approval interface', error as Error, {
+        sessionId: this.context.sessionId,
+        operation: 'cli_approval_interface'
+      });
+      
+      console.log('⚠️  Unable to display approval details. Please restart your request.');
+    }
+    
+    console.log('='.repeat(40));
+  }
 
   private async handleError(error: Error): Promise<void> {
     logger.error('Conversation error', error, {

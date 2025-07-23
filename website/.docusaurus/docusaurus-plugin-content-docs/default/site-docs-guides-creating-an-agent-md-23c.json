@@ -1,0 +1,24 @@
+{
+  "id": "guides/creating-an-agent",
+  "title": "Creating an Agent",
+  "description": "Agents in this system are specialized AI assistants that handle specific types of customer inquiries. This guide shows you how to create a new agent from scratch.",
+  "source": "@site/docs/guides/creating-an-agent.md",
+  "sourceDirName": "guides",
+  "slug": "/guides/creating-an-agent",
+  "permalink": "/twilio-openai-agents-sdk-ts-starter/guides/creating-an-agent",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/twilio/twilio-openai-agents-sdk-ts-starter/tree/main/website/docs/guides/creating-an-agent.md",
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "tutorialSidebar",
+  "previous": {
+    "title": "Architecture",
+    "permalink": "/twilio-openai-agents-sdk-ts-starter/architecture"
+  },
+  "next": {
+    "title": "Writing a Tool",
+    "permalink": "/twilio-openai-agents-sdk-ts-starter/guides/writing-a-tool"
+  }
+}

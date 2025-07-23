@@ -4,6 +4,7 @@ import { statePersistence } from './persistence';
 import { logger } from '../utils/logger';
 import { CustomerContext } from '../context/types';
 import { SubjectId } from '../types/common';
+import { eventBus } from '../events';
 
 /**
  * ConversationManager - Centralized management of conversation state and RunState persistence
@@ -156,6 +157,15 @@ export class ConversationManager {
         subjectId,
         operation: 'context_create'
       });
+
+      // Emit conversation_start event
+      eventBus.emit('conversation_start', {
+        subjectId,
+        agentName: 'default' // TODO: Get actual agent name from context
+      });
+
+      // Log conversation_start event
+      logger.event('conversation_start', { subjectId }, { agentName: 'default' });
     }
     
     return context;
@@ -225,12 +235,56 @@ export class ConversationManager {
         messageCount
       });
       
-      // TODO: Emit conversation_end event when LG-1.1 is implemented
+      // Emit conversation_end event
+      eventBus.emit('conversation_end', {
+        subjectId,
+        durationMs
+      });
+
+      // Log conversation_end event
+      logger.logConversationEnd(subjectId, durationMs, messageCount);
     } catch (error) {
       logger.error('Failed to end conversation session', error as Error, {
         subjectId,
         operation: 'session_end'
       });
+    }
+  }
+
+  /**
+   * Update escalation level for a conversation and emit escalation event if level increases
+   */
+  async updateEscalationLevel(subjectId: SubjectId, newLevel: number): Promise<void> {
+    try {
+      const context = await this.getContext(subjectId);
+      const previousLevel = context.escalationLevel;
+      
+      if (newLevel > previousLevel) {
+        context.escalationLevel = newLevel;
+        
+        logger.info('Escalation level increased', {
+          subjectId,
+          operation: 'escalation_increase'
+        }, {
+          previousLevel,
+          newLevel
+        });
+        
+        // Emit escalation event
+        eventBus.emit('escalation', {
+          subjectId,
+          level: newLevel
+        });
+        
+        // Save updated context
+        await this.saveContext(subjectId, context);
+      }
+    } catch (error) {
+      logger.error('Failed to update escalation level', error as Error, {
+        subjectId,
+        operation: 'escalation_update'
+      });
+      throw error;
     }
   }
 

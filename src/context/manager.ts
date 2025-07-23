@@ -13,11 +13,15 @@ export class ContextManager {
     return ContextManager.instance;
   }
 
-  createSession(customerId?: string): CustomerContext {
-    const sessionId = uuidv4();
+  // Allow callers (e.g., channel adapters) to specify their own session identifier so that
+  // subsequent look-ups using that ID succeed. If no sessionId is provided we generate a UUID
+  // as before. The optional second parameter can still be used to store a customerId.
+  createSession(sessionId?: string, customerId?: string): CustomerContext {
+    const id = sessionId ?? uuidv4();
+
     const now = new Date();
     const context: CustomerContext = {
-      sessionId,
+      sessionId: id,
       customerId,
       conversationHistory: [],
       escalationLevel: 0,
@@ -27,10 +31,11 @@ export class ContextManager {
       metadata: {}
     };
 
-    this.sessions.set(sessionId, context);
-    
-    logger.logConversationStart(sessionId, customerId);
-    
+    this.sessions.set(id, context);
+
+    // Structured log so that downstream services observe the externally supplied ID.
+    logger.logConversationStart(id, customerId);
+
     return context;
   }
 

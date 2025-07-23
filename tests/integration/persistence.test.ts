@@ -1,7 +1,7 @@
 import { ThreadingService } from '../../src/services/threading';
 import { ConversationManager } from '../../src/services/conversationManager';
 import { StatePersistence } from '../../src/services/persistence';
-import { triageAgent } from '../../src/agents/triage';
+import { triageAgent } from '../../src/agents/legacy/triage';
 import { CustomerContext } from '../../src/context/types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -31,17 +31,19 @@ describe('RunState Persistence Integration', () => {
     mockContext = {
       sessionId: 'test-session',
       sessionStartTime: new Date(),
+      lastActiveAt: new Date(),
       customerId: 'test-customer',
       customerName: 'Test Customer',
       customerEmail: 'test@example.com',
       customerPhone: '+1234567890',
-      currentOrder: null,
+      currentOrder: undefined,
       escalationLevel: 0,
       resolvedIssues: [],
       conversationHistory: [
         { role: 'user' as const, content: 'I need help with my order' },
         { role: 'assistant' as const, content: 'I can help you with that' }
-      ]
+      ],
+      metadata: {}
     };
   });
 

@@ -1,5 +1,5 @@
 import { RunState, Agent } from '@openai/agents';
-import { triageAgent } from '../../src/agents/triage';
+import { triageAgent } from '../../src/agents/legacy/triage';
 
 describe('RunState Serialization', () => {
   let agent: Agent;

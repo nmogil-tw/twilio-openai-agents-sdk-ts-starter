@@ -63,6 +63,36 @@ OPENAI_API_KEY=sk-your-openai-api-key-here
 npm run dev
 ```
 
+### 🚀 5-Minute Demo (SMS/Voice with Twilio)
+
+For an instant working demo with Twilio SMS and Voice webhooks:
+
+```bash
+git clone https://github.com/twilio/twilio-openai-agents-sdk-ts-starter.git
+cd twilio-openai-agents-sdk-ts-starter
+cp .env.example .env
+# Add your OpenAI API key and Twilio credentials to .env
+npm install
+npm start
+# In another terminal: ./examples/minimal/ngrok.sh
+# Configure Twilio webhooks to point to your ngrok URL
+# Send SMS to your Twilio number!
+```
+
+The minimal example server provides:
+- **SMS conversations** with persistent context
+- **Full voice support** with cross-channel continuity
+- **Tool approval workflow** for sensitive operations
+- **Health/status endpoints** for monitoring
+- **Structured logging** with subjectId tracking
+
+**Endpoints:**
+- `POST /sms` - Twilio SMS webhook
+- `GET/POST /voice` - Twilio Voice webhook (ConversationRelay)
+- `POST /approvals` - Tool approval decisions
+- `GET /health` - Health check
+- `GET /status` - Configuration status
+
 ## Usage
 
 ### Starting a Conversation
@@ -127,40 +157,21 @@ The platform supports voice calls through Twilio Conversation Relay, allowing cu
 - OpenAI API key configured
 
 #### Quick Start
-1. **Start the voice server**:
+1. **Start the server** (includes both SMS and Voice):
 ```bash
-npm run voice:dev
+npm start
 ```
 
 2. **Expose to Twilio with ngrok**:
 ```bash
-ngrok http 3001
+ngrok http 3000
 ```
 
-3. **Configure Twilio WebSocket URL** in your `.env` file:
-```bash
-TWILIO_WEBSOCKET_URL=wss://your-ngrok-domain.ngrok.io/conversation-relay
-```
+3. **Configure your Twilio phone number**:
+   - **SMS Webhook**: Set to `https://your-ngrok.ngrok.io/sms`
+   - **Voice Webhook**: Set to `https://your-ngrok.ngrok.io/voice`
 
-4. **Configure your Twilio phone number**:
-
-   **Option A: Use HTTP Webhook (Recommended)**
-   - Set your phone number webhook URL to: `https://8993c7537641.ngrok-free.app/conversation-relay`
-   - The server will automatically return the correct TwiML
-
-   **Option B: Use TwiML Bin**
-   - Create a new TwiML Bin in Twilio Console
-   - Paste this TwiML:
-   ```xml
-   <?xml version="1.0" encoding="UTF-8"?>
-   <Response>
-       <Say>Connecting you to our AI assistant. Please wait.</Say>
-       <Connect>
-           <ConversationRelay url="wss://8993c7537641.ngrok-free.app/conversation-relay" />
-       </Connect>
-   </Response>
-   ```
-   - Set your phone number to use this TwiML Bin
+**That's it!** The server automatically handles both SMS and Voice from the same endpoints.
 
 #### Voice Features
 - **🎤 Speech-to-Text**: Twilio handles voice transcription automatically
@@ -172,36 +183,38 @@ TWILIO_WEBSOCKET_URL=wss://your-ngrok-domain.ngrok.io/conversation-relay
 
 #### Voice Environment Variables
 ```bash
-PORT_VOICE=3001                                                    # Voice server port
-TWILIO_WEBSOCKET_URL=wss://your-domain.com/conversation-relay      # Twilio WebSocket URL
-START_CHANNELS=true                                                # Enable in main.ts
+# No additional environment variables needed!
+# Voice runs on the same server as SMS (port 3000)
 ```
 
 #### Voice Architecture
 ```
 Twilio Phone Call
     ↓ (Speech → Text)
-WebSocket Connection
+WebSocket Connection (same server as SMS)
     ↓
-VoiceRelayAdapter
-    ↓
-VoiceSession
+Voice Handler (integrated)
     ↓
 Same Agent System (Triage → Specialists)
     ↓ (Text → Speech)
 Back to Caller
 ```
 
-### Running Voice + CLI Together
+### Running Voice + SMS Together
 
-To run both voice and CLI interfaces simultaneously:
+Both SMS and Voice now work from a single server:
 ```bash
-# Terminal 1: Start voice server
-npm run voice:dev
+# Terminal 1: Start the server
+npm start
 
-# Terminal 2: Start CLI with channels enabled
-START_CHANNELS=true npm run dev-full
+# Terminal 2: Expose server with ngrok
+ngrok http 3000
 ```
+
+**Configuration:**
+- Set SMS webhook to: `https://abc123.ngrok.io/sms`
+- Set Voice webhook to: `https://abc123.ngrok.io/voice`
+- **No additional environment variables needed!**
 
 ## Cross-Channel Conversation Continuity
 
@@ -258,7 +271,11 @@ The cross-channel continuity is powered by:
 
 ### Subject Resolution
 
-The `DefaultPhoneSubjectResolver` normalizes phone numbers to ensure consistency:
+The system uses a pluggable Subject Resolver architecture to map channel-specific identifiers to canonical Subject IDs.
+
+#### Default Phone Subject Resolver
+
+The `DefaultPhoneSubjectResolver` normalizes phone numbers and persists mappings for consistency:
 
 ```typescript
 // All these formats resolve to the same Subject ID
@@ -268,8 +285,47 @@ const phoneFormats = [
   "(415) 555-0100",    // Formatted US
   "415-555-0100"       // Dashed US
 ];
-// All → "phone_+14155550100"
+// All → "phone_14155550100"
 ```
+
+The default resolver persists phone-to-subject mappings in `./data/subject-map.json` to ensure stability across restarts.
+
+#### Custom Subject Resolvers
+
+You can create custom resolvers to integrate with external systems:
+
+```typescript
+import { SubjectResolver, SubjectResolverRegistry } from './src/identity/subject-resolver';
+
+class CrmSubjectResolver implements SubjectResolver {
+  async resolve(raw: Record<string, any>) {
+    const phone = raw.from;
+    const res = await fetch(`${process.env.CRM_BASE}/lookup?phone=${phone}`);
+    const data = await res.json();
+    return data.profileId as SubjectId;
+  }
+}
+
+// Register the custom resolver
+const registry = SubjectResolverRegistry.getInstance();
+registry.register('crm', new CrmSubjectResolver());
+```
+
+#### Configuration
+
+Set the resolver via environment variable:
+
+```bash
+# Use default phone resolver
+SUBJECT_RESOLVER=phone
+
+# Use custom CRM resolver  
+SUBJECT_RESOLVER=crm
+CRM_BASE_URL=https://api.yourcrm.com
+CRM_API_KEY=your-api-key
+```
+
+See `examples/custom-resolvers/crm.ts` for a complete CRM integration example with fallback handling.
 
 ### Configuration
 
@@ -359,7 +415,40 @@ src/
 └── main.ts          # Application entry point
 ```
 
-### Adding New Agents
+### Adding a New Agent in 3 Lines
+
+With the **Dynamic Agent Registry**, adding a new agent is as simple as:
+
+1. **Create your agent file** (e.g., `src/agents/hr-agent.ts`):
+```typescript
+export const hrAgent = new Agent({
+  name: 'HR Agent',
+  instructions: 'Handle HR-related inquiries...',
+  tools: [/* your tools */]
+});
+```
+
+2. **Add to config** in `agents.config.ts`:
+```typescript
+hr: {
+  entry: 'src/agents/hr-agent.ts',
+  tools: ['hrDatabase'],
+}
+```
+
+3. **Use it** anywhere in your code:
+```typescript
+import { threadingService } from './src/services/threading';
+
+// Simply use the agent name - the registry loads it dynamically!
+const result = await threadingService.handleTurn('hr', subjectId, userMessage);
+```
+
+That's it! No import statements, no manual registration - the registry handles everything automatically.
+
+### Adding New Agents (Detailed)
+
+For more complex scenarios:
 
 1. Create a new agent file in `src/agents/`
 2. Define the agent using the `Agent` class

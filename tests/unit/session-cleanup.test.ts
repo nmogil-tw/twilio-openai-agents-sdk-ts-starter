@@ -16,7 +16,16 @@ jest.mock('../../src/utils/logger', () => ({
     info: jest.fn(),
     debug: jest.fn(),
     warn: jest.fn(),
-    error: jest.fn()
+    error: jest.fn(),
+    event: jest.fn(),
+    logAgentHandoff: jest.fn(),
+    logToolExecution: jest.fn(),
+    logConversationEnd: jest.fn(),
+    logToolCall: jest.fn(),
+    logToolResult: jest.fn(),
+    logError: jest.fn(),
+    logInterruption: jest.fn(),
+    logStreamingEvent: jest.fn()
   }
 }));
 

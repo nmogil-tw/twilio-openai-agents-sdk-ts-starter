@@ -4,8 +4,7 @@ import { threadingService, ThreadingOptions } from '../services/threading';
 import { conversationManager } from '../services/conversationManager';
 import { CustomerContext } from '../context/types';
 import { logger } from '../utils/logger';
-import { SubjectResolver, SubjectId } from '../types/common';
-import { defaultPhoneSubjectResolver } from '../services/subjectResolver';
+import { SubjectResolver, SubjectId, SubjectResolverRegistry } from '../identity/subject-resolver';
 
 /**
  * Base implementation providing common functionality for all channel adapters.
@@ -20,7 +19,7 @@ export abstract class BaseAdapter implements ChannelAdapter {
   protected subjectResolver: SubjectResolver;
 
   constructor(subjectResolver?: SubjectResolver) {
-    this.subjectResolver = subjectResolver || defaultPhoneSubjectResolver;
+    this.subjectResolver = subjectResolver || SubjectResolverRegistry.getInstance().getDefault();
   }
   /**
    * Process a complete request cycle: extract message, get metadata, process with agent, and send response.
@@ -123,8 +122,11 @@ export abstract class BaseAdapter implements ChannelAdapter {
         context.conversationHistory.push(item);
       });
 
-      // Save context and RunState if available
-      await conversationManager.saveContext(subjectId, context, result.state);
+      // Persist state only when tool approvals are awaited; otherwise omit to avoid
+      // re-loading a completed RunState on the next turn (which caused the agent to
+      // repeat the previous response).
+      const shouldPersistState = !!result.awaitingApprovals && result.state;
+      await conversationManager.saveContext(subjectId, context, shouldPersistState ? result.state : undefined);
 
       // Check if user is saying goodbye
       const isGoodbye = this.isGoodbyeMessage(userMessage);

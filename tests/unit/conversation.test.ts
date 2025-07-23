@@ -1,7 +1,7 @@
 import { ConversationService } from '../../src/services/conversation';
 import { threadingService } from '../../src/services/threading';
-import { triageAgent } from '../../src/agents/triage';
-import { orderAgent } from '../../src/agents/orders';
+import { triageAgent } from '../../src/agents/legacy/triage';
+import { orderAgent } from '../../src/agents/legacy/orders';
 
 // Mock the threading service
 jest.mock('../../src/services/threading');

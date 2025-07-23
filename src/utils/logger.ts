@@ -1,4 +1,5 @@
 import { createLogger, format, transports } from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 
 export enum LogLevel {
   ERROR = 'error',
@@ -25,20 +26,26 @@ export interface LogContext {
 
 class CustomerServiceLogger {
   private logger;
+  private defaultSubjectId?: string;
   
   constructor(level: string = 'info') {
+    const isProduction = process.env.NODE_ENV === 'production';
+    
     this.logger = createLogger({
       level,
       format: format.combine(
         format.timestamp(),
         format.errors({ stack: true }),
         format.json(),
-        format.printf(({ timestamp, level, message, ...meta }) => {
+        format.printf(({ timestamp, level, message, event, subjectId, data, ...meta }) => {
+          const messageStr = typeof message === 'string' ? message : String(message);
           return JSON.stringify({
             timestamp,
             level,
-            message,
-            ...meta
+            event: event || messageStr.toLowerCase().replace(/\s+/g, '_'),
+            subjectId: subjectId || this.defaultSubjectId,
+            data: data || meta,
+            message: messageStr
           });
         })
       ),
@@ -49,21 +56,66 @@ class CustomerServiceLogger {
             format.simple()
           )
         }),
-        new transports.File({ 
-          filename: 'logs/customer-service.log',
-          format: format.json()
-        }),
-        new transports.File({ 
-          filename: 'logs/error.log', 
-          level: 'error',
-          format: format.json()
-        })
+        ...(isProduction ? [
+          new DailyRotateFile({
+            filename: 'logs/customer-service-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            maxSize: '20m',
+            maxFiles: '14d',
+            format: format.json()
+          }),
+          new DailyRotateFile({
+            filename: 'logs/error-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            level: 'error',
+            maxSize: '20m',
+            maxFiles: '30d',
+            format: format.json()
+          })
+        ] : [
+          new transports.File({ 
+            filename: 'logs/customer-service.log',
+            format: format.json()
+          }),
+          new transports.File({ 
+            filename: 'logs/error.log', 
+            level: 'error',
+            format: format.json()
+          })
+        ])
       ]
     });
   }
 
+  /**
+   * Create a logger instance pre-bound to a specific subjectId
+   */
+  withSubject(subjectId: string): CustomerServiceLogger {
+    const boundLogger = new CustomerServiceLogger(this.logger.level);
+    boundLogger.defaultSubjectId = subjectId;
+    return boundLogger;
+  }
+
   log(level: LogLevel, message: string, context?: LogContext, meta?: any) {
-    this.logger.log(level, message, { context, meta });
+    const logData = {
+      ...context,
+      ...meta,
+      subjectId: context?.subjectId || this.defaultSubjectId
+    };
+    this.logger.log(level, message, logData);
+  }
+
+  /**
+   * Enhanced log method with explicit event name for structured logging
+   */
+  event(eventName: string, context?: LogContext, meta?: any) {
+    const logData = {
+      event: eventName,
+      subjectId: context?.subjectId || this.defaultSubjectId,
+      data: meta,
+      ...context
+    };
+    this.logger.info(eventName, logData);
   }
 
   info(message: string, context?: LogContext, meta?: any) {
@@ -113,6 +165,26 @@ class CustomerServiceLogger {
     }, {
       parameters,
       result
+    });
+  }
+
+  // Structured event logging methods for LG-1.1
+  logConversationEnd(subjectId: string, durationMs: number, messageCount: number) {
+    this.event('conversation_end', { subjectId }, { durationMs, messageCount });
+  }
+
+  logToolCall(toolName: string, params: any, context: LogContext) {
+    this.event('tool_call', { ...context, toolName }, { params });
+  }
+
+  logToolResult(toolName: string, resultSnippet: string, context: LogContext) {
+    this.event('tool_result', { ...context, toolName }, { resultSnippet });
+  }
+
+  logError(error: Error, context: LogContext) {
+    this.event('error', context, { 
+      message: error.message,
+      stack: error.stack 
     });
   }
 

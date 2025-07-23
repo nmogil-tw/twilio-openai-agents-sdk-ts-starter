@@ -1,16 +1,10 @@
 import { Agent } from '@openai/agents';
-import { 
-  customerLookupTool,
-  orderLookupTool, 
-  trackingTool, 
-  processRefundTool,
-  escalateToHumanTool,
-  sendSmsTool
-} from '../tools';
+import { AgentConfig } from '../registry/agent-factory';
 import { inputGuardrails } from '../guardrails/input';
 import { outputGuardrails } from '../guardrails/output';
 
-export const customerSupportAgent = new Agent({
+// Configuration for the customer support agent - tools will be injected dynamically from agents.config.ts
+export const customersupportConfig: AgentConfig = {
   name: 'Customer Support Agent',
   
   instructions: `You are a helpful Twilio customer support representative. You can handle all customer inquiries including orders, billing, technical issues, FAQ questions, and escalations.
@@ -68,16 +62,6 @@ export const customerSupportAgent = new Agent({
 - If you cannot resolve an issue, escalate appropriately
 - Follow all security and privacy guidelines`,
 
-  // All available tools for comprehensive support
-  tools: [
-    customerLookupTool,
-    orderLookupTool,
-    trackingTool,
-    processRefundTool,
-    escalateToHumanTool,
-    sendSmsTool
-  ],
-
   // Apply security guardrails
   inputGuardrails,
   outputGuardrails,
@@ -86,6 +70,20 @@ export const customerSupportAgent = new Agent({
   model: 'gpt-4o-mini',
 
   // Allow flexible tool usage
+  toolUseBehavior: {
+    stopAtToolNames: []
+  }
+};
+
+// Legacy export for backward compatibility - this will use static tools
+// and will be replaced by the new config-based approach above
+export const customerSupportAgent = new Agent({
+  name: 'Customer Support Agent (Legacy)',
+  instructions: customersupportConfig.instructions,
+  tools: [], // Empty for now - legacy code should migrate to config-based approach
+  inputGuardrails,
+  outputGuardrails,
+  model: 'gpt-4o-mini',
   toolUseBehavior: {
     stopAtToolNames: []
   }

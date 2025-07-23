@@ -6,8 +6,8 @@ export const voiceServerAdapters = [
 ];
 
 // Export interfaces and base classes
-export { ChannelAdapter } from './ChannelAdapter';
+export type { ChannelAdapter } from './ChannelAdapter';
 export { BaseAdapter } from './BaseAdapter';
 
 // Export server interface for voice channels
-export { VoiceServerAdapter } from './voice/adapter';
+export type { VoiceServerAdapter } from './voice/adapter';

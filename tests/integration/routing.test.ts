@@ -1,10 +1,10 @@
 import { ConversationService } from '../../src/services/conversation';
 import { threadingService } from '../../src/services/threading';
-import { triageAgent } from '../../src/agents/triage';
-import { orderAgent } from '../../src/agents/orders';
-import { billingAgent } from '../../src/agents/billing';
-import { technicalAgent } from '../../src/agents/technical';
-import { faqAgent } from '../../src/agents/faq';
+import { triageAgent } from '../../src/agents/legacy/triage';
+import { orderAgent } from '../../src/agents/legacy/orders';
+import { billingAgent } from '../../src/agents/legacy/billing';
+import { technicalAgent } from '../../src/agents/legacy/technical';
+import { faqAgent } from '../../src/agents/legacy/faq';
 
 describe('Agent Routing Integration Tests', () => {
   let conversationService: ConversationService;
@@ -28,14 +28,16 @@ describe('Agent Routing Integration Tests', () => {
           {
             sessionId: 'test-session',
             sessionStartTime: new Date(),
+            lastActiveAt: new Date(),
             customerId: 'test-customer',
             customerName: 'Test Customer',
             customerEmail: 'test@example.com',
             customerPhone: '+1234567890',
-            currentOrder: null,
+            currentOrder: undefined,
             escalationLevel: 0,
             resolvedIssues: [],
-            conversationHistory: []
+            conversationHistory: [],
+            metadata: {}
           },
           { showProgress: false, enableDebugLogs: false }
         );
@@ -70,14 +72,16 @@ describe('Agent Routing Integration Tests', () => {
           {
             sessionId: 'test-session',
             sessionStartTime: new Date(),
+            lastActiveAt: new Date(),
             customerId: 'test-customer',
             customerName: 'Test Customer',
             customerEmail: 'test@example.com',
             customerPhone: '+1234567890',
-            currentOrder: null,
+            currentOrder: undefined,
             escalationLevel: 0,
             resolvedIssues: [],
-            conversationHistory: []
+            conversationHistory: [],
+            metadata: {}
           },
           { showProgress: false, enableDebugLogs: false }
         );
@@ -106,14 +110,16 @@ describe('Agent Routing Integration Tests', () => {
           {
             sessionId: 'test-session',
             sessionStartTime: new Date(),
+            lastActiveAt: new Date(),
             customerId: 'test-customer',
             customerName: 'Test Customer',
             customerEmail: 'test@example.com',
             customerPhone: '+1234567890',
-            currentOrder: null,
+            currentOrder: undefined,
             escalationLevel: 0,
             resolvedIssues: [],
-            conversationHistory: []
+            conversationHistory: [],
+            metadata: {}
           },
           { showProgress: false, enableDebugLogs: false }
         );
@@ -142,14 +148,16 @@ describe('Agent Routing Integration Tests', () => {
           {
             sessionId: 'test-session',
             sessionStartTime: new Date(),
+            lastActiveAt: new Date(),
             customerId: 'test-customer',
             customerName: 'Test Customer',
             customerEmail: 'test@example.com',
             customerPhone: '+1234567890',
-            currentOrder: null,
+            currentOrder: undefined,
             escalationLevel: 0,
             resolvedIssues: [],
-            conversationHistory: []
+            conversationHistory: [],
+            metadata: {}
           },
           { showProgress: false, enableDebugLogs: false }
         );
@@ -182,14 +190,16 @@ describe('Agent Routing Integration Tests', () => {
           {
             sessionId: 'test-session',
             sessionStartTime: new Date(),
+            lastActiveAt: new Date(),
             customerId: 'test-customer',
             customerName: 'Test Customer',
             customerEmail: 'test@example.com',
             customerPhone: '+1234567890',
-            currentOrder: null,
+            currentOrder: undefined,
             escalationLevel: 0,
             resolvedIssues: [],
-            conversationHistory: []
+            conversationHistory: [],
+            metadata: {}
           },
           { showProgress: false, enableDebugLogs: false }
         );

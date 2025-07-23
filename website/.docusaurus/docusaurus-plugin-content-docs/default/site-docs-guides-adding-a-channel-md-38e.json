@@ -1,0 +1,24 @@
+{
+  "id": "guides/adding-a-channel",
+  "title": "Adding a Channel",
+  "description": "Channels connect your AI agents to different communication platforms. This guide shows how to create a custom channel adapter to integrate with new platforms.",
+  "source": "@site/docs/guides/adding-a-channel.md",
+  "sourceDirName": "guides",
+  "slug": "/guides/adding-a-channel",
+  "permalink": "/twilio-openai-agents-sdk-ts-starter/guides/adding-a-channel",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/twilio/twilio-openai-agents-sdk-ts-starter/tree/main/website/docs/guides/adding-a-channel.md",
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "tutorialSidebar",
+  "previous": {
+    "title": "Writing a Tool",
+    "permalink": "/twilio-openai-agents-sdk-ts-starter/guides/writing-a-tool"
+  },
+  "next": {
+    "title": "ConversationManager API",
+    "permalink": "/twilio-openai-agents-sdk-ts-starter/api/conversation-manager"
+  }
+}

@@ -6,6 +6,7 @@ import { WebSocket } from 'ws';
 class MockWebSocket extends WebSocket {
   public sent: string[] = [];
   public readyState = WebSocket.OPEN;
+  public voiceSession?: VoiceSession;
 
   constructor() {
     super('ws://mock');

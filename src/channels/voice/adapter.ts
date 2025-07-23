@@ -6,7 +6,7 @@ import { BaseAdapter } from '../BaseAdapter';
 import { VoiceSession, TwilioVoiceMessage, TwilioVoiceResponse } from './voiceSession';
 import { logger } from '../../utils/logger';
 import { initializeEnvironment } from '../../config/environment';
-import { SubjectResolver } from '../../types/common';
+import { SubjectResolver } from '../../identity/subject-resolver';
 
 interface WebSocketWithSession extends WebSocket {
   voiceSession?: VoiceSession;
@@ -259,6 +259,66 @@ export class VoiceRelayAdapter implements VoiceServerAdapter {
         userAgent: req.get('User-Agent'),
         body: req.body
       });
+    });
+
+    // POST endpoint for tool approvals
+    this.app.post('/approvals', async (req, res) => {
+      try {
+        const { subjectId, decisions } = req.body;
+        
+        // Validate request body
+        if (!subjectId || !Array.isArray(decisions)) {
+          return res.status(400).json({
+            error: 'Invalid request body. Expected: { subjectId: string, decisions: Array<{ toolCallId: string, approved: boolean }> }'
+          });
+        }
+
+        logger.info('Approval request received', {
+          operation: 'approval_request'
+        }, {
+          subjectId,
+          decisionsCount: decisions.length
+        });
+
+        // Import ThreadingService and process approvals
+        const { threadingService } = await import('../../services/threading');
+        
+        // Convert decisions format to match ThreadingService expectations
+        const approvals = decisions.map(decision => ({
+          toolCall: { id: decision.toolCallId },
+          approved: decision.approved
+        }));
+        
+        const result = await threadingService.handleApprovals(subjectId, approvals);
+        
+        // Return the result
+        res.json({
+          success: true,
+          subjectId,
+          result: {
+            response: result.response,
+            awaitingApprovals: result.awaitingApprovals || false,
+            currentAgent: result.currentAgent?.name || 'unknown'
+          }
+        });
+        
+        logger.info('Approval request processed', {
+          operation: 'approval_request_success'
+        }, {
+          subjectId,
+          hasResponse: !!result.response
+        });
+        
+      } catch (error) {
+        logger.error('Approval request failed', error as Error, {
+          operation: 'approval_request'
+        });
+        
+        res.status(500).json({
+          error: 'Failed to process approval request',
+          message: (error as Error).message
+        });
+      }
     });
 
     // WebSocket endpoint for Twilio Conversation Relay
@@ -750,3 +810,5 @@ export class VoiceRelayAdapter implements VoiceServerAdapter {
     return this.sessions.size;
   }
 }
+
+export { VoiceMessageAdapter };

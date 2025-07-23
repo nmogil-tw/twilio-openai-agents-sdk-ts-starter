@@ -1,6 +1,6 @@
 import { ThreadingService } from '../../src/services/threading';
-import { triageAgent } from '../../src/agents/triage';
-import { orderAgent } from '../../src/agents/orders';
+import { triageAgent } from '../../src/agents/legacy/triage';
+import { orderAgent } from '../../src/agents/legacy/orders';
 import { CustomerContext } from '../../src/context/types';
 
 describe('ThreadingService', () => {
@@ -12,14 +12,16 @@ describe('ThreadingService', () => {
     mockContext = {
       sessionId: 'test-session',
       sessionStartTime: new Date(),
+      lastActiveAt: new Date(),
       customerId: 'test-customer',
       customerName: 'Test Customer',
       customerEmail: 'test@example.com',
       customerPhone: '+1234567890',
-      currentOrder: null,
+      currentOrder: undefined,
       escalationLevel: 0,
       resolvedIssues: [],
-      conversationHistory: []
+      conversationHistory: [],
+      metadata: {}
     };
   });
 

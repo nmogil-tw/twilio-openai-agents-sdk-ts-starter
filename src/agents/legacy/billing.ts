@@ -1,9 +1,10 @@
 import { Agent } from '@openai/agents';
+import { AgentConfig } from '../../registry/agent-factory';
 import { inputGuardrails } from '../../guardrails/input';
 import { outputGuardrails } from '../../guardrails/output';
-import { sendSmsTool } from '../../tools/sms';
 
-export const billingAgent = new Agent({
+// Configuration for the billing agent - tools will be injected dynamically from agents.config.ts
+export const billingConfig: AgentConfig = {
   name: 'Billing Agent',
   
   instructions: `You are a billing specialist who helps customers with payment and billing inquiries. You handle:
@@ -38,12 +39,19 @@ When you have fully addressed the customer's request **emit a \`handoff\` item**
 
 Always prioritize customer data security and follow PCI compliance guidelines.`,
 
-  tools: [
-    sendSmsTool
-  ],
-
   inputGuardrails,
   outputGuardrails,
 
+  model: 'gpt-4o-mini'
+};
+
+// Legacy export for backward compatibility - this will use static tools
+// and will be replaced by the new config-based approach above
+export const billingAgent = new Agent({
+  name: 'Billing Agent (Legacy)',
+  instructions: billingConfig.instructions,
+  tools: [], // Empty for now - legacy code should migrate to config-based approach
+  inputGuardrails,
+  outputGuardrails,
   model: 'gpt-4o-mini'
 });

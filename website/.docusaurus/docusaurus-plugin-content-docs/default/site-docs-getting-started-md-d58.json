@@ -1,0 +1,20 @@
+{
+  "id": "getting-started",
+  "title": "Getting Started",
+  "description": "Welcome to the Twilio OpenAI Agents SDK Starter! This comprehensive platform enables you to build sophisticated conversational AI agents that integrate seamlessly with Twilio's communication channels.",
+  "source": "@site/docs/getting-started.md",
+  "sourceDirName": ".",
+  "slug": "/getting-started",
+  "permalink": "/twilio-openai-agents-sdk-ts-starter/getting-started",
+  "draft": false,
+  "unlisted": false,
+  "editUrl": "https://github.com/twilio/twilio-openai-agents-sdk-ts-starter/tree/main/website/docs/getting-started.md",
+  "tags": [],
+  "version": "current",
+  "frontMatter": {},
+  "sidebar": "tutorialSidebar",
+  "next": {
+    "title": "Architecture",
+    "permalink": "/twilio-openai-agents-sdk-ts-starter/architecture"
+  }
+}

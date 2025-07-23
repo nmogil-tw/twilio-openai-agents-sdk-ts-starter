@@ -26,23 +26,23 @@ Read **`{{REQUIREMENT_DOC}}`** and implement every checklist item it contains. D
 - [X] (1) `docs/requirements/CM-1.1.md` – CM-1.1 – Persist RunState  
 - [X] (2) `docs/requirements/CM-1.0.md` – CM-1.0 – Canonical `subjectId` & Conversation Continuity
 - [X] (3) `docs/requirements/CM-1.2.md` – CM-1.2 – Pluggable persistence layer
+- [X] (4) `docs/requirements/CM-1.3.md` – CM-1.3 – Explicit `endSession` API  
+- [X] (5) `docs/requirements/CM-1.4.md` – CM-1.4 – `SubjectResolver` plug-in  
+- [X] (6) `docs/requirements/PL-1.0.md` – PL-1.0 – `AgentRegistry` dynamic loading  
+- [X] (7) `docs/requirements/PL-1.1.md` – PL-1.1 – `ToolRegistry` dynamic loading  
+- [X] (8) `docs/requirements/PL-1.2.md` – PL-1.2 – Tool availability configuration  
+- [X] (9) `docs/requirements/PL-1.3.md` – PL-1.3 – Support `needsApproval` workflow  
 - [X] (10) `docs/requirements/CH-1.0.md` – CH-1.0 – Standard `ChannelAdapter` interface  
 - [X] (11) `docs/requirements/CH-1.1.md` – CH-1.1 – Adapters use Conversation Manager  
 - [X] (12) `docs/requirements/CH-1.2.md` – CH-1.2 – Translate channel data into `Agent.run()`  
-- [X] (13) `docs/requirements/CH-1.3.md` – CH-1.3 – Twilio Conversation Relay specifics  
+- [X] (13) `docs/requirements/CH-1.3.md` – CH-1.3 – Twilio Conversation Relay specifics
+- [X] (14) `docs/requirements/LG-1.2.md` – LG-1.2 – Lifecycle event emission  
 
 **🚧 PARTIALLY IMPLEMENTED:**
-- [~] (14) `docs/requirements/LG-1.0.md` – LG-1.0 – Structured JSON logging (missing subjectId consistency)
-- [~] (15) `docs/requirements/LG-1.1.md` – LG-1.1 – Consistent event logging (missing event emission)
+- [~] (15) `docs/requirements/LG-1.0.md` – LG-1.0 – Structured JSON logging (missing subjectId consistency)
+- [~] (16) `docs/requirements/LG-1.1.md` – LG-1.1 – Consistent event logging (missing event emission)
 
-**❌ NOT IMPLEMENTED:**
-- [ ] (4) `docs/requirements/CM-1.3.md` – CM-1.3 – Explicit `endSession` API  
-- [ ] (5) `docs/requirements/CM-1.4.md` – CM-1.4 – `SubjectResolver` plug-in  
-- [ ] (6) `docs/requirements/PL-1.0.md` – PL-1.0 – `AgentRegistry` dynamic loading  
-- [ ] (7) `docs/requirements/PL-1.1.md` – PL-1.1 – `ToolRegistry` dynamic loading  
-- [ ] (8) `docs/requirements/PL-1.2.md` – PL-1.2 – Tool availability configuration  
-- [ ] (9) `docs/requirements/PL-1.3.md` – PL-1.3 – Support `needsApproval` workflow  
-- [ ] (16) `docs/requirements/LG-1.2.md` – LG-1.2 – Lifecycle event emission  
+**❌ NOT IMPLEMENTED:**  
 - [ ] (17) `docs/requirements/DX-1.0.md` – DX-1.0 – Minimal end-to-end example  
 - [ ] (18) `docs/requirements/DX-1.2.md` – DX-1.2 – Comprehensive documentation  
 

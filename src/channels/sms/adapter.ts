@@ -2,7 +2,7 @@ import express from 'express';
 import twilio from 'twilio';
 import { BaseAdapter } from '../BaseAdapter';
 import { logger } from '../../utils/logger';
-import { SubjectResolver } from '../../types/common';
+import { SubjectResolver } from '../../identity/subject-resolver';
 
 /**
  * Interface for Twilio SMS webhook request body
