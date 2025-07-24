@@ -29,10 +29,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "tsx examples/minimal/server.ts",
-    "dev": "tsx watch examples/minimal/server.ts",
-    "start-full": "tsx src/main.ts",
-    "dev-full": "tsx watch src/main.ts",
+    "start": "tsx src/server.ts",
+    "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -40,7 +38,7 @@
     "lint": "echo \"Linting not configured yet\"",
     "typecheck": "tsc --noEmit",
     "cleanup": "tsx scripts/cleanup-sessions.ts",
-    "example:test": "tsx examples/minimal/server.ts --test",
+    "server:test": "tsx src/server.ts --test",
     "docs:serve": "npx docusaurus start website",
     "docs:build": "npx docusaurus build website",
     "docs:deploy": "npx docusaurus deploy website"

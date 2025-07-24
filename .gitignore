@@ -3,6 +3,7 @@ node_modules
 logs/
 docs/
 .claude/
+data/
 
 # Build output
 dist/

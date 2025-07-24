@@ -1,9 +1,9 @@
 #!/usr/bin/env tsx
 
 /**
- * Minimal Example Server - Twilio OpenAI Agents SDK Starter
+ * Twilio OpenAI Agents SDK Server
  * 
- * This is a complete, turnkey example that demonstrates the core features:
+ * This is the main server that demonstrates the core features:
  * - SMS and Voice channel adapters with Twilio
  * - Conversation management with RunState persistence
  * - Subject resolution for customer continuity
@@ -14,7 +14,7 @@
  * 1. cp .env.example .env
  * 2. Fill in your Twilio and OpenAI credentials
  * 3. npm install && npm start
- * 4. Use ngrok or similar to expose localhost:3000
+ * 4. Use ngrok or similar to expose localhost:3001
  * 5. Configure your Twilio webhooks to point to your ngrok URL
  * 6. Send SMS to your Twilio number!
  */
@@ -23,19 +23,19 @@ import express from 'express';
 import expressWs from 'express-ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { logger } from '../../src/utils/logger';
-import { conversationManager } from '../../src/services/conversationManager';
-import { SmsAdapter } from '../../src/channels/sms/adapter';
-import { DefaultPhoneSubjectResolver } from '../../src/identity/subject-resolver';
-import { agentRegistry } from '../../src/registry/agent-registry';
-import { threadingService } from '../../src/services/threading';
+import { logger } from './utils/logger';
+import { conversationManager } from './services/conversationManager';
+import { SmsAdapter } from './channels/sms/adapter';
+import { DefaultPhoneSubjectResolver } from './identity/subject-resolver';
+import { agentRegistry } from './registry/agent-registry';
+import { threadingService } from './services/threading';
 
 // Load environment variables
 dotenv.config();
 
 const app = express();
 const wsInstance = expressWs(app);
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3001;
 
 // Middleware
 app.use(cors());
@@ -49,8 +49,8 @@ const subjectResolver = new DefaultPhoneSubjectResolver();
 const smsAdapter = new SmsAdapter(subjectResolver);
 
 // Voice functionality (integrated into this server)
-import { VoiceSession, TwilioVoiceMessage, TwilioVoiceResponse } from '../../src/channels/voice/voiceSession';
-import { BaseAdapter } from '../../src/channels/BaseAdapter';
+import { VoiceSession, TwilioVoiceMessage, TwilioVoiceResponse } from './channels/voice/voiceSession';
+import { BaseAdapter } from './channels/BaseAdapter';
 import { WebSocket } from 'ws';
 
 interface WebSocketWithSession extends WebSocket {
@@ -88,7 +88,7 @@ class VoiceMessageAdapter extends BaseAdapter {
 
   async sendResponse(ws: WebSocketWithSession, textStream: AsyncIterable<string>): Promise<void> {
     const startTime = Date.now();
-    const { textStreamToTwilioTts } = await import('../../src/channels/utils/stream');
+    const { textStreamToTwilioTts } = await import('./channels/utils/stream');
     
     // Convert text stream to TTS-ready format with streaming support
     const ttsStream = textStreamToTwilioTts(textStream, {
@@ -379,7 +379,7 @@ async function processVoiceMessage(
         };
         
         // Process using the BaseAdapter pattern
-        const { agentRegistry } = await import('../../src/registry/agent-registry');
+        const { agentRegistry } = await import('./registry/agent-registry');
         const agent = await agentRegistry.get('triage');
         await voiceMessageAdapter.processRequest(messageWithSetup, ws, agent);
       } catch (error) {
@@ -495,7 +495,7 @@ async function processBatchedTranscripts(
     };
 
     // Process using the BaseAdapter pattern
-    const { agentRegistry } = await import('../../src/registry/agent-registry');
+    const { agentRegistry } = await import('./registry/agent-registry');
     const agent = await agentRegistry.get('triage');
     await voiceMessageAdapter.processRequest(mediaMessage, ws, agent);
 
@@ -589,8 +589,8 @@ app.get('/health', (req, res) => {
  */
 app.get('/status', async (req, res) => {
   try {
-    const agents = agentRegistry.listAgents();
-    const { toolRegistry } = await import('../../src/registry/tool-registry');
+    const agents = agentRegistry.list();
+    const { toolRegistry } = await import('./registry/tool-registry');
     const tools = toolRegistry.list();
     
     res.json({
@@ -622,7 +622,7 @@ async function startServer() {
     logger.info('Initializing agent and tool registries...');
     await agentRegistry.init();
     
-    const { toolRegistry } = await import('../../src/registry/tool-registry');
+    const { toolRegistry } = await import('./registry/tool-registry');
     await toolRegistry.init();
     
     logger.info('Registries initialized successfully');
@@ -655,7 +655,7 @@ async function startServer() {
 
     // Start the server
     app.listen(PORT, () => {
-      logger.info('Minimal example server started', {
+      logger.info('Twilio OpenAI Agents SDK server started', {
         operation: 'server_start'
       }, {
         port: PORT,
@@ -669,7 +669,7 @@ async function startServer() {
         ]
       });
 
-      console.log(`🚀 Twilio OpenAI Agents SDK Example Server`);
+      console.log(`🚀 Twilio OpenAI Agents SDK Server`);
       console.log(`📍 Running on http://localhost:${PORT}`);
       console.log(`📱 SMS webhook: http://localhost:${PORT}/sms`);
       console.log(`📞 Voice webhook: http://localhost:${PORT}/voice (ConversationRelay)`);
@@ -678,7 +678,7 @@ async function startServer() {
       console.log(`📊 Status: http://localhost:${PORT}/status`);
       console.log(`🩺 Health: http://localhost:${PORT}/health`);
       console.log('');
-      console.log('💡 Single server setup: npx ngrok http 3000');
+      console.log('💡 Single server setup: npx ngrok http 3001');
       console.log('💡 Configure Twilio SMS webhook: https://your-ngrok.ngrok.io/sms');
       console.log('💡 Configure Twilio Voice webhook: https://your-ngrok.ngrok.io/voice');
     });

@@ -215,8 +215,15 @@ export class ThreadingService {
         };
       }
 
-      // Clean up saved state when run completes successfully
-      await conversationManager.deleteRunState(subjectId);
+      // Save final state for conversation continuity
+      if ('state' in result && result.state) {
+        await conversationManager.saveRunState(subjectId, result.state);
+        
+        logger.info('RunState saved for conversation continuity', {
+          subjectId,
+          operation: 'state_persistence'
+        });
+      }
 
       const currentAgent = ('currentAgent' in result && result.currentAgent) ? result.currentAgent : agent;
       

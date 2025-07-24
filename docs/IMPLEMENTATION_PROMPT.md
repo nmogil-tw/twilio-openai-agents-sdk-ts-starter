@@ -42,8 +42,10 @@ Read **`{{REQUIREMENT_DOC}}`** and implement every checklist item it contains. D
 - [~] (15) `docs/requirements/LG-1.0.md` – LG-1.0 – Structured JSON logging (missing subjectId consistency)
 - [~] (16) `docs/requirements/LG-1.1.md` – LG-1.1 – Consistent event logging (missing event emission)
 
+**✅ FULLY IMPLEMENTED:**
+- [X] (17) `docs/requirements/DX-1.0.md` – DX-1.0 – Minimal end-to-end example  
+
 **❌ NOT IMPLEMENTED:**  
-- [ ] (17) `docs/requirements/DX-1.0.md` – DX-1.0 – Minimal end-to-end example  
 - [ ] (18) `docs/requirements/DX-1.2.md` – DX-1.2 – Comprehensive documentation  
 
 _Always work on one requirement at a time in the order above._

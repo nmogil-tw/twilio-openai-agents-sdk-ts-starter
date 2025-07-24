@@ -1,16 +1,17 @@
-# Customer Service Multi-Agent Platform
+# Twilio OpenAI Agents SDK Starter
 
-A comprehensive customer service agent system built with the OpenAI Agents SDK, featuring real-time streaming, multi-agent orchestration, and human-in-the-loop workflows.
+A complete omnichannel AI agent platform built with the OpenAI Agents SDK and Twilio, featuring SMS and Voice channels with conversation continuity.
 
 ## Features
 
-- **🔄 Real-time Streaming**: Immediate response feedback using SDK streaming APIs
+- **📱 SMS Channel**: Full SMS webhook integration with Twilio
+- **📞 Voice Channel**: Real-time voice conversations with Twilio ConversationRelay
+- **🔄 Cross-Channel Continuity**: Seamless conversation continuity between SMS and Voice
 - **🤖 Multi-Agent Architecture**: Specialized agents for different types of inquiries
-- **🔧 Interactive Interface**: Command-line interface with readline for natural conversation
 - **👥 Human-in-the-Loop**: Approval workflows for sensitive operations
 - **📊 Comprehensive Logging**: Structured logging with Winston for debugging and monitoring
 - **🛡️ Security Guardrails**: PII detection and input/output validation
-- **📈 Context Management**: Session tracking and conversation history
+- **📈 Context Management**: Subject-based conversation persistence
 
 ## Architecture
 
@@ -58,9 +59,17 @@ cp .env.example .env
 OPENAI_API_KEY=sk-your-openai-api-key-here
 ```
 
-4. **Start the application**:
+4. **Configure Twilio credentials** in the `.env` file:
 ```bash
-npm run dev
+TWILIO_ACCOUNT_SID=your-twilio-account-sid
+TWILIO_API_KEY_SID=your-twilio-api-key-sid
+TWILIO_API_KEY_SECRET=your-twilio-api-key-secret
+TWILIO_PHONE_NUMBER=your-twilio-phone-number
+```
+
+5. **Start the server**:
+```bash
+npm start
 ```
 
 ### 🚀 5-Minute Demo (SMS/Voice with Twilio)
@@ -74,12 +83,12 @@ cp .env.example .env
 # Add your OpenAI API key and Twilio credentials to .env
 npm install
 npm start
-# In another terminal: ./examples/minimal/ngrok.sh
+# In another terminal: npx ngrok http 3001
 # Configure Twilio webhooks to point to your ngrok URL
 # Send SMS to your Twilio number!
 ```
 
-The minimal example server provides:
+The server provides:
 - **SMS conversations** with persistent context
 - **Full voice support** with cross-channel continuity
 - **Tool approval workflow** for sensitive operations
@@ -95,32 +104,22 @@ The minimal example server provides:
 
 ## Usage
 
-### Starting a Conversation
+### Using the Server
 
-When you run the application, you'll be greeted with a welcome message and can start chatting immediately:
+The server provides webhook endpoints for Twilio SMS and Voice integration:
 
-```
-🎧 Customer Service Agent Online
-==================================================
-Hi! I'm your AI customer service assistant.
-I can help you with:
-  📋 Order inquiries and tracking
-  💳 Billing and payment questions
-  🔧 Technical support
-  ❓ General questions and FAQ
-  🆘 Escalations to human agents
+- **SMS**: Send a text message to your Twilio phone number
+- **Voice**: Call your Twilio phone number and speak with the AI agent
+- **Cross-Channel**: Start on SMS, continue on Voice (or vice versa) with full context
 
-👤 You: Hello, I need help with my order
-```
+### Server Endpoints
 
-### Available Commands
-
-- `help` - Show available commands
-- `status` - Display conversation status
-- `history` - Show recent conversation history
-- `agent` - Display current agent information
-- `clear` - Clear the screen
-- `exit` - End the conversation
+- `POST /sms` - Twilio SMS webhook
+- `GET/POST /voice` - Twilio Voice webhook (returns ConversationRelay TwiML)
+- `WS /conversation-relay` - WebSocket endpoint for voice conversations
+- `POST /approvals` - Tool approval webhook for human-in-the-loop workflows
+- `GET /health` - Health check endpoint
+- `GET /status` - Server status and configuration
 
 ### Example Interactions
 
@@ -164,14 +163,14 @@ npm start
 
 2. **Expose to Twilio with ngrok**:
 ```bash
-ngrok http 3000
+ngrok http 3001
 ```
 
 3. **Configure your Twilio phone number**:
-   - **SMS Webhook**: Set to `https://your-ngrok.ngrok.io/sms`
-   - **Voice Webhook**: Set to `https://your-ngrok.ngrok.io/voice`
+   - **SMS Webhook**: Set to `https://your-ngrok-url.ngrok.io/sms`
+   - **Voice Webhook**: Set to `https://your-ngrok-url.ngrok.io/voice`
 
-**That's it!** The server automatically handles both SMS and Voice from the same endpoints.
+**That's it!** The server automatically handles both SMS and Voice channels with full conversation continuity.
 
 #### Voice Features
 - **🎤 Speech-to-Text**: Twilio handles voice transcription automatically
@@ -183,8 +182,8 @@ ngrok http 3000
 
 #### Voice Environment Variables
 ```bash
-# No additional environment variables needed!
-# Voice runs on the same server as SMS (port 3000)
+# Voice runs on the same server as SMS (port 3001)
+PORT=3001
 ```
 
 #### Voice Architecture
@@ -202,19 +201,19 @@ Back to Caller
 
 ### Running Voice + SMS Together
 
-Both SMS and Voice now work from a single server:
+Both SMS and Voice work from a single server:
 ```bash
 # Terminal 1: Start the server
 npm start
 
 # Terminal 2: Expose server with ngrok
-ngrok http 3000
+ngrok http 3001
 ```
 
 **Configuration:**
 - Set SMS webhook to: `https://abc123.ngrok.io/sms`
 - Set Voice webhook to: `https://abc123.ngrok.io/voice`
-- **No additional environment variables needed!**
+- Server runs on port 3001 by default
 
 ## Cross-Channel Conversation Continuity
 
@@ -402,17 +401,20 @@ The test simulates:
 ```
 src/
 ├── channels/         # Communication channel adapters
+│   ├── sms/         # SMS (Twilio) integration
 │   ├── voice/       # Voice (Twilio) integration
 │   ├── ChannelAdapter.ts # Channel interface
-│   └── index.ts     # Channel registry
+│   └── index.ts     # Channel exports
 ├── config/           # Environment and configuration
 ├── agents/           # Agent definitions
 ├── tools/            # Tool implementations
 ├── guardrails/       # Input/output validation
+├── identity/         # Subject resolution
+├── registry/         # Agent and tool registries
 ├── context/          # Session and context management
 ├── utils/            # Utilities and logging
 ├── services/         # Core services
-└── main.ts          # Application entry point
+└── server.ts        # Main server entry point
 ```
 
 ### Adding a New Agent in 3 Lines
@@ -495,10 +497,10 @@ For more complex scenarios:
 - `POSTGRES_TABLE_NAME` - Table name for states (default: conversation_states)
 - `POSTGRES_SSL` - Enable SSL connection (default: false)
 
-#### Voice Channel Configuration
-- `PORT_VOICE` - Port for voice server (default: 3001)
+#### Server Configuration
+- `PORT` - Server port (default: 3001)
 - `TWILIO_WEBSOCKET_URL` - WebSocket URL for Twilio Conversation Relay
-- `START_CHANNELS` - Enable channel adapters in main.ts (default: false)
+- `HOST` - Server host (default: 0.0.0.0)
 
 ## Features in Detail
 
