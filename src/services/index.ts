@@ -1,2 +1,1 @@
-export * from './threading';
-export * from './conversationManager';
+export * from './conversationService';

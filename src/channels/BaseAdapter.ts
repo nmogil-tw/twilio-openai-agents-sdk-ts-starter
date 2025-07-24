@@ -1,15 +1,13 @@
 import { Agent } from '@openai/agents';
 import { ChannelAdapter } from './ChannelAdapter';
-import { threadingService, ThreadingOptions } from '../services/threading';
-import { conversationManager } from '../services/conversationManager';
-import { CustomerContext } from '../context/types';
+import { conversationService, ProcessingOptions } from '../services/conversationService';
 import { logger } from '../utils/logger';
 import { SubjectResolver, SubjectId, SubjectResolverRegistry } from '../identity/subject-resolver';
 
 /**
  * Base implementation providing common functionality for all channel adapters.
  * 
- * This abstract class handles the integration with ConversationManager and ThreadingService,
+ * This abstract class handles the integration with ConversationService,
  * providing a uniform way to process user messages and stream responses back to channels.
  * 
  * Channel-specific adapters should extend this class and implement the abstract methods
@@ -37,7 +35,7 @@ export abstract class BaseAdapter implements ChannelAdapter {
     req: any,
     res: any,
     agent: Agent,
-    options: ThreadingOptions = {}
+    options: ProcessingOptions = {}
   ): Promise<void> {
     const startTime = Date.now();
     let subjectId: SubjectId = 'unknown';
@@ -61,9 +59,6 @@ export abstract class BaseAdapter implements ChannelAdapter {
       // Resolve subject ID from channel metadata
       subjectId = await this.subjectResolver.resolve(metadata);
       
-      // Get or create conversation context for this subject
-      const context = await conversationManager.getContext(subjectId);
-
       logger.info('Processing channel request', {
         subjectId,
         operation: 'base_adapter_process',
@@ -73,29 +68,18 @@ export abstract class BaseAdapter implements ChannelAdapter {
         hasMetadata: Object.keys(metadata).length > 0
       });
 
-      // Initialize context with channel metadata if not already set
+      // Initialize context with channel metadata if needed
+      const context = await conversationService.getContext(subjectId);
       if (!context.customerPhone && metadata.phone) {
         context.customerPhone = metadata.phone;
+        await conversationService.saveContext(subjectId, context);
       }
 
-      // Extract and update customer information from the message
-      const extracted = this.extractCustomerInfo(userMessage);
-      if (extracted.email || extracted.orderNumber || extracted.phone) {
-        context.customerEmail = extracted.email || context.customerEmail;
-        context.currentOrder = extracted.orderNumber || context.currentOrder;
-        context.customerPhone = extracted.phone || context.customerPhone;
-      }
-
-      // Add user message to conversation history
-      const userMessageItem = { role: 'user' as const, content: userMessage };
-      context.conversationHistory.push(userMessageItem);
-
-      // Process with threading service using subjectId
-      const result = await threadingService.handleTurn(
+      // Process with unified conversation service
+      const result = await conversationService.processConversationTurn(
         agent,
-        subjectId, // Use subjectId instead of sessionId
+        subjectId,
         userMessage,
-        context,
         { 
           showProgress: false, 
           enableDebugLogs: false, 
@@ -117,17 +101,6 @@ export abstract class BaseAdapter implements ChannelAdapter {
         return;
       }
 
-      // Update conversation history with agent responses
-      result.newItems.forEach(item => {
-        context.conversationHistory.push(item);
-      });
-
-      // Persist state only when tool approvals are awaited; otherwise omit to avoid
-      // re-loading a completed RunState on the next turn (which caused the agent to
-      // repeat the previous response).
-      const shouldPersistState = !!result.awaitingApprovals && result.state;
-      await conversationManager.saveContext(subjectId, context, shouldPersistState ? result.state : undefined);
-
       // Check if user is saying goodbye
       const isGoodbye = this.isGoodbyeMessage(userMessage);
       
@@ -140,7 +113,7 @@ export abstract class BaseAdapter implements ChannelAdapter {
       // End session if user said goodbye
       if (isGoodbye) {
         try {
-          await conversationManager.endSession(subjectId);
+          await conversationService.endSession(subjectId);
           logger.info('Session ended due to goodbye message', {
             subjectId,
             operation: 'session_end_goodbye',
@@ -187,23 +160,6 @@ export abstract class BaseAdapter implements ChannelAdapter {
     }
   }
 
-  /**
-   * Extract customer information from a user message.
-   * 
-   * This method parses the user input to identify potential customer
-   * identifiers like email addresses, order numbers, and phone numbers.
-   */
-  protected extractCustomerInfo(input: string): { email?: string; orderNumber?: string; phone?: string } {
-    const emailMatch = input.match(/[\w.-]+@[\w.-]+\.\w+/);
-    const orderMatch = input.match(/order\s*#?\s*([A-Z0-9-]+)/i);
-    const phoneMatch = input.match(/(\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4})/);
-
-    return {
-      email: emailMatch?.[0],
-      orderNumber: orderMatch?.[1],
-      phone: phoneMatch?.[0]
-    };
-  }
 
   /**
    * Check if a user message indicates they want to end the conversation.

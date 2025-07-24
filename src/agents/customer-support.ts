@@ -1,10 +1,15 @@
 import { Agent } from '@openai/agents';
-import { AgentConfig } from '../registry/agent-factory';
 import { inputGuardrails } from '../guardrails/input';
 import { outputGuardrails } from '../guardrails/output';
 
-// Configuration for the customer support agent - tools will be injected dynamically from agents.config.ts
-export const customersupportConfig: AgentConfig = {
+// Import tools directly
+import { customerLookupTool, intentClassificationTool } from '../tools/customer';
+import { orderLookupTool, trackingTool, processRefundTool } from '../tools/orders';
+import { orderStatus } from '../tools/order-status';
+import { escalateToHumanTool } from '../tools/escalation';
+import { sendSmsTool } from '../tools/sms';
+
+export const customerSupportAgent = new Agent({
   name: 'Customer Support Agent',
   
   instructions: `You are a helpful Twilio customer support representative. You can handle all customer inquiries including orders, billing, technical issues, FAQ questions, and escalations.
@@ -62,6 +67,18 @@ export const customersupportConfig: AgentConfig = {
 - If you cannot resolve an issue, escalate appropriately
 - Follow all security and privacy guidelines`,
 
+  // Import tools directly
+  tools: [
+    customerLookupTool,
+    intentClassificationTool,
+    orderLookupTool,
+    processRefundTool,
+    trackingTool,
+    escalateToHumanTool,
+    sendSmsTool,
+    orderStatus
+  ],
+
   // Apply security guardrails
   inputGuardrails,
   outputGuardrails,
@@ -70,20 +87,6 @@ export const customersupportConfig: AgentConfig = {
   model: 'gpt-4o-mini',
 
   // Allow flexible tool usage
-  toolUseBehavior: {
-    stopAtToolNames: []
-  }
-};
-
-// Legacy export for backward compatibility - this will use static tools
-// and will be replaced by the new config-based approach above
-export const customerSupportAgent = new Agent({
-  name: 'Customer Support Agent (Legacy)',
-  instructions: customersupportConfig.instructions,
-  tools: [], // Empty for now - legacy code should migrate to config-based approach
-  inputGuardrails,
-  outputGuardrails,
-  model: 'gpt-4o-mini',
   toolUseBehavior: {
     stopAtToolNames: []
   }

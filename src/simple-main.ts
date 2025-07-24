@@ -3,7 +3,7 @@ import { Agent } from '@openai/agents';
 import { createInterface } from 'readline';
 import { initializeEnvironment } from './config/environment';
 import { logger } from './utils/logger';
-import { threadingService } from './services/threading';
+import { conversationService } from './services/conversationService';
 import { v4 as uuidv4 } from 'uuid';
 
 // Simple customer service agent without complex typing
@@ -72,18 +72,17 @@ async function startConversation() {
       if (['exit', 'quit', 'bye', 'goodbye'].includes(userInput.toLowerCase())) {
         console.log('\n👋 Thank you for using our customer service! Have a great day!');
         
-        // Clean up threading resources
-        await threadingService.cleanupConversation(conversationId);
+        // Clean up conversation resources
+        await conversationService.endSession(conversationId);
         break;
       }
 
       try {
-        // Use threading service for conversation continuity
-        const result = await threadingService.handleTurn(
+        // Use conversation service for conversation continuity
+        const result = await conversationService.processConversationTurn(
           customerServiceAgent,
           conversationId,
           userInput,
-          undefined, // no customer context in simple mode
           { 
             showProgress: true, 
             enableDebugLogs: false,

@@ -24,11 +24,10 @@ import expressWs from 'express-ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { logger } from './utils/logger';
-import { conversationManager } from './services/conversationManager';
+import { conversationService } from './services/conversationService';
 import { SmsAdapter } from './channels/sms/adapter';
 import { DefaultPhoneSubjectResolver } from './identity/subject-resolver';
 import { agentRegistry } from './registry/agent-registry';
-import { threadingService } from './services/threading';
 
 // Load environment variables
 dotenv.config();
@@ -170,7 +169,7 @@ app.post('/sms', async (req, res) => {
     });
 
     // Get the default agent from the registry
-    const agent = await agentRegistry.get('triage');
+    const agent = await agentRegistry.getDefault();
     
     // Process the SMS through our adapter
     await smsAdapter.processSmsWebhook(req, res, agent);
@@ -332,7 +331,7 @@ async function handleVoiceWebSocket(ws: WebSocketWithSession, req: express.Reque
 
     // End conversation session
     try {
-      await conversationManager.endSession(sessionId);
+      await conversationService.endSession(sessionId);
     } catch (endError) {
       logger.error('Failed to end voice session', endError as Error, {
         sessionId,
@@ -380,7 +379,7 @@ async function processVoiceMessage(
         
         // Process using the BaseAdapter pattern
         const { agentRegistry } = await import('./registry/agent-registry');
-        const agent = await agentRegistry.get('triage');
+        const agent = await agentRegistry.getDefault();
         await voiceMessageAdapter.processRequest(messageWithSetup, ws, agent);
       } catch (error) {
         logger.warn('Voice adapter processing failed, using fallback', {
@@ -496,7 +495,7 @@ async function processBatchedTranscripts(
 
     // Process using the BaseAdapter pattern
     const { agentRegistry } = await import('./registry/agent-registry');
-    const agent = await agentRegistry.get('triage');
+    const agent = await agentRegistry.getDefault();
     await voiceMessageAdapter.processRequest(mediaMessage, ws, agent);
 
   } catch (error) {
@@ -551,7 +550,7 @@ app.post('/approvals', async (req, res) => {
       approved: decision.approved
     }));
 
-    const result = await threadingService.handleApprovals(subjectId, approvals);
+    const result = await conversationService.handleToolApprovals(subjectId, approvals);
     
     res.json({ 
       success: true, 
@@ -590,13 +589,10 @@ app.get('/health', (req, res) => {
 app.get('/status', async (req, res) => {
   try {
     const agents = agentRegistry.list();
-    const { toolRegistry } = await import('./registry/tool-registry');
-    const tools = toolRegistry.list();
     
     res.json({
       status: 'running',
       agents: agents,
-      tools: tools,
       configuration: {
         twilioConfigured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_API_KEY_SID),
         openaiConfigured: !!process.env.OPENAI_API_KEY,
@@ -618,14 +614,11 @@ app.get('/status', async (req, res) => {
  */
 async function startServer() {
   try {
-    // Initialize registries
-    logger.info('Initializing agent and tool registries...');
+    // Initialize agent registry
+    logger.info('Initializing agent registry...');
     await agentRegistry.init();
     
-    const { toolRegistry } = await import('./registry/tool-registry');
-    await toolRegistry.init();
-    
-    logger.info('Registries initialized successfully');
+    logger.info('Registry initialized successfully');
 
     // Validate required environment variables
     const requiredEnvVars = [
@@ -696,7 +689,7 @@ process.on('SIGINT', async () => {
   logger.info('Shutting down server...');
   
   // Cleanup any active conversations
-  await conversationManager.cleanup(0); // Clean up all sessions
+  await conversationService.cleanup(0); // Clean up all sessions
   
   logger.info('Server shutdown complete');
   process.exit(0);

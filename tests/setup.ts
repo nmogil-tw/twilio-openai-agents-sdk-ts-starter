@@ -32,7 +32,7 @@ afterEach(() => {
 
 // Global test environment setup
 process.env.NODE_ENV = 'test';
-process.env.PORT_VOICE = '3001'; // Use different port for tests
+// Voice config removed - integrated into main server
 
 // Mock the logger to prevent file system access during tests
 jest.mock('../src/utils/logger', () => ({
