@@ -1,4 +1,4 @@
-import { RunStateStore } from '../services/persistence/types';
+import { RunStateStore, CustomerContextStore } from '../services/persistence/types';
 import { FileStateStore } from '../services/persistence/fileStore';
 import { RedisStateStore } from '../services/persistence/redisStore';
 import { PostgresStateStore } from '../services/persistence/postgresStore';
@@ -40,9 +40,9 @@ export interface PersistenceConfig {
 }
 
 /**
- * Create a RunStateStore instance based on environment configuration
+ * Create a persistence store instance that implements both RunStateStore and CustomerContextStore
  */
-export function createPersistenceStore(): RunStateStore {
+export function createPersistenceStore(): RunStateStore & CustomerContextStore {
   const adapter = (process.env.PERSISTENCE_ADAPTER as PersistenceAdapter) || 'file';
   
   logger.info('Initializing persistence store', {
@@ -57,6 +57,7 @@ export function createPersistenceStore(): RunStateStore {
       });
 
     case 'redis':
+      // TODO: Implement CustomerContextStore in RedisStateStore
       return new RedisStateStore({
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379'),
@@ -64,9 +65,10 @@ export function createPersistenceStore(): RunStateStore {
         db: parseInt(process.env.REDIS_DB || '0'),
         keyPrefix: process.env.REDIS_KEY_PREFIX || 'runstate:',
         maxAge: parseInt(process.env.STATE_MAX_AGE || '86400000')
-      });
+      }) as unknown as RunStateStore & CustomerContextStore;
 
     case 'postgres':
+      // TODO: Implement CustomerContextStore in PostgresStateStore  
       return new PostgresStateStore({
         connectionString: process.env.DATABASE_URL,
         host: process.env.POSTGRES_HOST || 'localhost',
@@ -77,7 +79,7 @@ export function createPersistenceStore(): RunStateStore {
         tableName: process.env.POSTGRES_TABLE_NAME || 'conversation_states',
         maxAge: parseInt(process.env.STATE_MAX_AGE || '86400000'),
         ssl: process.env.POSTGRES_SSL === 'true'
-      });
+      }) as unknown as RunStateStore & CustomerContextStore;
 
     default:
       logger.warn('Unknown persistence adapter, falling back to file store', {

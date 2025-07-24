@@ -1,4 +1,4 @@
-import { RunStateStore } from './types';
+import { RunStateStore, CustomerContextStore } from './types';
 import { createPersistenceStore } from '../../config/persistence';
 
 // Export types for external use
@@ -8,9 +8,9 @@ export { RedisStateStore } from './redisStore';
 export { PostgresStateStore } from './postgresStore';
 
 /**
- * Singleton instance of the configured RunStateStore
+ * Singleton instance of the configured persistence store
  * 
- * This instance is created based on the PERSISTENCE_ADAPTER environment variable
- * and can be swapped without code changes by changing the environment configuration.
+ * This instance implements both RunStateStore and CustomerContextStore interfaces
+ * and is created based on the PERSISTENCE_ADAPTER environment variable.
  */
-export const statePersistence: RunStateStore = createPersistenceStore();
+export const statePersistence: RunStateStore & CustomerContextStore = createPersistenceStore();

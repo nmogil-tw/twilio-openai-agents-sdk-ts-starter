@@ -4,7 +4,7 @@ import {
   RunState,
   type AgentInputItem,
 } from '@openai/agents';
-import { RunStateStore } from './persistence/types';
+import { RunStateStore, CustomerContextStore } from './persistence/types';
 import { statePersistence } from './persistence';
 import { logger } from '../utils/logger';
 import { CustomerContext } from '../context/types';
@@ -61,22 +61,28 @@ export class ConversationService {
   private contexts: Map<SubjectId, CustomerContext> = new Map();
   private runnerCache: Map<SubjectId, Runner> = new Map();
   private stateStore: RunStateStore;
+  private contextStore: CustomerContextStore;
   private readonly SLOW_OPERATION_THRESHOLD_MS = 200;
 
-  constructor(stateStore?: RunStateStore) {
-    this.stateStore = stateStore || statePersistence;
+  constructor(storeInstance?: RunStateStore & CustomerContextStore) {
+    // Use the same store instance for both RunState and CustomerContext
+    // The FileStateStore implements both interfaces
+    const store = storeInstance || statePersistence;
+    this.stateStore = store;
+    this.contextStore = store as CustomerContextStore;
     
-    // Initialize state persistence
+    // Initialize persistence
     this.stateStore.init().catch((error: Error) => {
       logger.error('Failed to initialize state persistence', error, {
         operation: 'conversation_service_init'
       });
     });
 
-    // Setup cleanup interval for old runners and states
+    // Setup cleanup interval for old runners, states, and contexts
     setInterval(() => {
       this.cleanupOldRunners();
       this.stateStore.cleanupOldStates();
+      this.contextStore.cleanupOldContexts();
     }, 60 * 60 * 1000); // Run every hour
   }
 
@@ -428,12 +434,46 @@ export class ConversationService {
 
   /**
    * Get or create CustomerContext for a given subject ID.
+   * 
+   * This method first checks in-memory cache, then tries to load from persistent storage.
+   * If no context exists, it creates a new one and emits conversation_start events.
    */
   async getContext(subjectId: SubjectId): Promise<CustomerContext> {
+    // Check in-memory cache first
     let context = this.contexts.get(subjectId);
     
     if (!context) {
-      // Create new context for this subject
+      // Try to load existing context from persistent storage
+      try {
+        const persistedContext = await this.contextStore.loadContext(subjectId);
+        if (persistedContext) {
+          // Found existing context - this is a returning customer
+          context = persistedContext;
+          
+          // Update lastActiveAt and put in memory cache
+          context.lastActiveAt = new Date();
+          this.contexts.set(subjectId, context);
+          
+          logger.info('Existing conversation context loaded', {
+            subjectId,
+            operation: 'context_load'
+          }, {
+            sessionStartTime: context.sessionStartTime.toISOString(),
+            historyLength: context.conversationHistory.length,
+            escalationLevel: context.escalationLevel,
+            resolvedIssuesCount: context.resolvedIssues.length
+          });
+          
+          return context;
+        }
+      } catch (error) {
+        logger.warn('Failed to load existing context, will create new one', {
+          subjectId,
+          operation: 'context_load_fallback'
+        }, { error: (error as Error).message });
+      }
+
+      // No existing context found - create new one
       const now = new Date();
       context = {
         sessionId: subjectId, // Use subjectId as sessionId for compatibility
@@ -452,7 +492,7 @@ export class ConversationService {
         operation: 'context_create'
       });
 
-      // Emit conversation_start event
+      // Emit conversation_start event for new conversations only
       eventBus.emit('conversation_start', {
         subjectId,
         agentName: 'default' // TODO: Get actual agent name from context
@@ -466,7 +506,7 @@ export class ConversationService {
   }
 
   /**
-   * Save CustomerContext (in-memory) for a subject.
+   * Save CustomerContext both in-memory and to persistent storage.
    */
   async saveContext(subjectId: SubjectId, context: CustomerContext): Promise<void> {
     try {
@@ -475,12 +515,16 @@ export class ConversationService {
       
       // Update in-memory context
       this.contexts.set(subjectId, context);
+
+      // Persist context to storage for cross-session continuity
+      await this.contextStore.saveContext(subjectId, context);
       
       logger.debug('Conversation context saved', {
         subjectId,
         operation: 'context_save'
       }, {
-        historyLength: context.conversationHistory.length
+        historyLength: context.conversationHistory.length,
+        persisted: true
       });
     } catch (error) {
       logger.error('Failed to save conversation context', error as Error, {
@@ -510,7 +554,10 @@ export class ConversationService {
   }
 
   /**
-   * Explicitly end a conversation session and cleanup all associated state.
+   * End a conversation session while preserving customer context for future sessions.
+   * 
+   * This method saves the customer context to persistent storage so returning customers
+   * get continuity, but cleans up temporary resources like runners and RunState.
    */
   async endSession(subjectId: SubjectId): Promise<void> {
     try {
@@ -521,13 +568,32 @@ export class ConversationService {
       const durationMs = Date.now() - sessionStart.getTime();
       const messageCount = context?.conversationHistory?.length || 0;
       
-      // Remove in-memory context
+      // Save customer context to persistent storage before ending session
+      if (context) {
+        try {
+          await this.contextStore.saveContext(subjectId, context);
+          logger.debug('Customer context persisted before session end', {
+            subjectId,
+            operation: 'session_end_context_save'
+          }, {
+            historyLength: context.conversationHistory.length,
+            escalationLevel: context.escalationLevel
+          });
+        } catch (saveError) {
+          logger.error('Failed to save context before ending session', saveError as Error, {
+            subjectId,
+            operation: 'session_end_context_save'
+          });
+        }
+      }
+      
+      // Remove in-memory context (will be reloaded from storage if customer returns)
       this.contexts.delete(subjectId);
       
       // Remove runner from cache
       this.runnerCache.delete(subjectId);
       
-      // Delete persistent RunState
+      // Delete persistent RunState (tool approvals are session-specific)
       await this.deleteRunState(subjectId);
       
       logger.info('Conversation session ended', {
@@ -535,7 +601,8 @@ export class ConversationService {
         operation: 'session_end'
       }, {
         durationMs,
-        messageCount
+        messageCount,
+        contextPersisted: !!context
       });
       
       // Emit conversation_end event
@@ -592,41 +659,64 @@ export class ConversationService {
   }
 
   /**
-   * Cleanup old sessions based on maximum age.
+   * Cleanup old sessions and persistent data with different retention periods.
+   * 
+   * @param inMemoryMaxAge - Max age for in-memory contexts (default: 4 hours)
+   * @param runStateMaxAge - Max age for RunState files (default: 24 hours)  
+   * @param contextMaxAge - Max age for CustomerContext files (default: 7 days)
    */
-  async cleanup(maxAgeMs?: number): Promise<number> {
-    const ageThreshold = maxAgeMs || (24 * 60 * 60 * 1000); // Default 24 hours
+  async cleanup(
+    inMemoryMaxAge?: number,
+    runStateMaxAge?: number, 
+    contextMaxAge?: number
+  ): Promise<number> {
+    const inMemoryThreshold = inMemoryMaxAge || (4 * 60 * 60 * 1000); // 4 hours for in-memory
+    const runStateThreshold = runStateMaxAge || (24 * 60 * 60 * 1000); // 24 hours for RunState
+    const contextThreshold = contextMaxAge || (7 * 24 * 60 * 60 * 1000); // 7 days for CustomerContext
+    
     const now = Date.now();
-    let cleanupCount = 0;
+    let inMemoryCleanupCount = 0;
     const expiredSubjects: SubjectId[] = [];
     
     // Find expired in-memory contexts based on lastActiveAt
     for (const [subjectId, context] of this.contexts.entries()) {
       const age = now - context.lastActiveAt.getTime();
-      if (age > ageThreshold) {
+      if (age > inMemoryThreshold) {
         expiredSubjects.push(subjectId);
       }
     }
     
-    // Cleanup expired sessions
+    // Cleanup expired in-memory sessions (this saves contexts to storage)
     for (const subjectId of expiredSubjects) {
       await this.endSession(subjectId);
-      cleanupCount++;
+      inMemoryCleanupCount++;
     }
     
-    // Also cleanup old persistent states (via RunStateStore)
-    await this.stateStore.cleanupOldStates(ageThreshold);
+    // Cleanup old RunStates (short-term, for tool approvals)
+    const runStateCleanupCount = await this.stateStore.cleanupOldStates(runStateThreshold);
     
-    if (cleanupCount > 0) {
+    // Cleanup old CustomerContexts (long-term, for customer continuity)
+    const contextCleanupCount = await this.contextStore.cleanupOldContexts(contextThreshold);
+    
+    const totalCleanedItems = inMemoryCleanupCount + runStateCleanupCount + contextCleanupCount;
+    
+    if (totalCleanedItems > 0) {
       logger.info('Conversation cleanup completed', {
         operation: 'conversation_cleanup'
       }, {
-        cleanedCount: cleanupCount,
-        maxAgeMs: ageThreshold
+        inMemoryCleanedCount: inMemoryCleanupCount,
+        runStateCleanedCount: runStateCleanupCount,
+        contextCleanedCount: contextCleanupCount,
+        totalCleaned: totalCleanedItems,
+        thresholds: {
+          inMemoryMaxAge: inMemoryThreshold,
+          runStateMaxAge: runStateThreshold,
+          contextMaxAge: contextThreshold
+        }
       });
     }
     
-    return cleanupCount;
+    return totalCleanedItems;
   }
 
   // Private methods (from both services)
