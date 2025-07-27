@@ -96,10 +96,10 @@ export function textStreamToTwilioTts(
             }
           }
 
-          const segment = buffer.slice(0, breakPoint).trim();
+          const segment = buffer.slice(0, breakPoint);
           buffer = buffer.slice(breakPoint);
 
-          if (segment) {
+          if (segment.trim()) {
             const ttsChunk: TwilioTtsChunk = {
               type: 'audio',
               token: segment
@@ -214,10 +214,23 @@ export async function textStreamToSmsSegments(
       }
     }
 
-    const segment = remaining.slice(0, breakPoint).trim();
-    segments.push(`Part ${segmentNumber}/${totalSegments}: ${segment}`);
+    const segment = remaining.slice(0, breakPoint);
+    // Only trim leading whitespace, preserve trailing space if it was the break point
+    const trimmedSegment = segment.replace(/^\s+/, '');
+    const fullSegment = `Part ${segmentNumber}/${totalSegments}: ${trimmedSegment}`;
     
-    remaining = remaining.slice(breakPoint).trim();
+    // Ensure the segment doesn't exceed SMS limit
+    if (fullSegment.length > SMS_SEGMENT_LIMIT) {
+      // If it's too long, use a shorter break point and trim trailing space
+      const maxContentLength = SMS_SEGMENT_LIMIT - prefixLength;
+      const shorterSegment = remaining.slice(0, maxContentLength).replace(/^\s+/, '').replace(/\s+$/, '');
+      segments.push(`Part ${segmentNumber}/${totalSegments}: ${shorterSegment}`);
+      remaining = remaining.slice(maxContentLength);
+    } else {
+      segments.push(fullSegment);
+      remaining = remaining.slice(breakPoint);
+    }
+    
     segmentNumber++;
   }
 

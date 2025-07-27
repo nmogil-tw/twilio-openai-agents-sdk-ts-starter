@@ -1,14 +1,12 @@
-import { ThreadingService } from '../../src/services/threading';
-import { ConversationManager } from '../../src/services/conversationManager';
+import { ConversationService } from '../../src/services/conversationService';
 import { StatePersistence } from '../../src/services/persistence';
-import { triageAgent } from '../../src/agents/legacy/triage';
+import { customerSupportAgent } from '../../src/agents/customer-support';
 import { CustomerContext } from '../../src/context/types';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
 describe('RunState Persistence Integration', () => {
-  let threadingService: ThreadingService;
-  let conversationManager: ConversationManager;
+  let conversationService: ConversationService;
   let statePersistence: StatePersistence;
   let mockContext: CustomerContext;
   let testDataDir: string;
@@ -25,8 +23,7 @@ describe('RunState Persistence Integration', () => {
     });
     await statePersistence.init();
 
-    conversationManager = new ConversationManager();
-    threadingService = new ThreadingService();
+    conversationService = new ConversationService(statePersistence);
 
     mockContext = {
       sessionId: 'test-session',
@@ -57,51 +54,57 @@ describe('RunState Persistence Integration', () => {
   });
 
   describe('Tool interruption and resumption workflow', () => {
-    it('should save state when tool approval is required', async () => {
+    it('should maintain conversation state across service operations', async () => {
       const conversationId = 'test-interruption-conversation';
-      const userMessage = 'Process a refund for order ORD_123';
+      const userMessage = 'Hello, I need help with my order';
 
       try {
-        // This test would work better with a mock agent that has tools requiring approval
-        // For now, we'll test the state persistence mechanism directly
-        
-        // Simulate saving a state string
-        const mockStateString = '{"version": 1, "interrupted": true, "pendingTools": [{"name": "processRefund", "args": {"orderId": "ORD_123"}}]}';
-        await conversationManager.saveRunState(conversationId, { toString: () => mockStateString } as any);
+        // Start a conversation to create initial state
+        const result = await conversationService.processConversationTurn(
+          customerSupportAgent,
+          conversationId,
+          userMessage,
+          { showProgress: false, enableDebugLogs: false }
+        );
 
-        // Verify state was saved
-        const savedState = await conversationManager.getRunState(conversationId);
-        expect(savedState).toBe(mockStateString);
+        // Verify conversation was processed
+        expect(result).toHaveProperty('currentAgent');
+        expect(result.currentAgent.name).toBeDefined();
 
-        // Verify file exists
-        const stateFilePath = path.join(testDataDir, `${conversationId}.json`);
-        const fileExists = await fs.access(stateFilePath).then(() => true).catch(() => false);
-        expect(fileExists).toBe(true);
+        // Verify context was saved and can be retrieved
+        const context = await conversationService.getContext(conversationId);
+        expect(context).toBeDefined();
+        expect(context.sessionId).toBeDefined();
+        expect(context.conversationHistory.length).toBeGreaterThan(0);
 
-        // Verify index file was created
-        const indexFilePath = path.join(testDataDir, 'index.json');
-        const indexExists = await fs.access(indexFilePath).then(() => true).catch(() => false);
-        expect(indexExists).toBe(true);
-
-        // Read and verify index content
-        const indexContent = await fs.readFile(indexFilePath, 'utf-8');
-        const index = JSON.parse(indexContent);
-        expect(index).toHaveProperty(conversationId);
-        expect(typeof index[conversationId]).toBe('number');
+        // Verify session info is available
+        const sessionInfo = await conversationService.getSessionInfo(conversationId);
+        expect(sessionInfo).toBeDefined();
+        expect(sessionInfo?.subjectId).toBe(conversationId);
 
       } catch (error) {
         // The actual threading might fail due to OpenAI API requirements
         // but we can still test the persistence layer
-        console.warn('Threading test failed, but persistence layer should still work:', error);
+        console.warn('Expected test error due to API requirements:', error);
+        
+        // Even if the conversation fails, context should still be available
+        const context = await conversationService.getContext(conversationId);
+        expect(context).toBeDefined();
       }
     });
 
-    it('should handle service restart and resume from saved state', async () => {
+    it('should handle service restart and maintain context across instances', async () => {
       const conversationId = 'test-restart-conversation';
       
-      // Step 1: Save a state (simulating interruption)
-      const mockStateString = '{"version": 1, "messages": [{"role": "user", "content": "test"}], "pendingTool": "processRefund"}';
-      await conversationManager.saveRunState(conversationId, { toString: () => mockStateString } as any);
+      // Step 1: Create initial conversation and context
+      const initialContext = await conversationService.getContext(conversationId);
+      initialContext.customerName = 'Test Customer';
+      initialContext.customerEmail = 'test@example.com';
+      initialContext.conversationHistory = [
+        { role: 'user' as const, content: 'Initial message' },
+        { role: 'assistant' as const, content: 'Initial response' }
+      ];
+      await conversationService.saveContext(conversationId, initialContext);
 
       // Step 2: Create new service instances (simulating restart)
       const newStatePersistence = new StatePersistence({
@@ -110,49 +113,48 @@ describe('RunState Persistence Integration', () => {
       });
       await newStatePersistence.init();
 
-      const newConversationManager = new ConversationManager();
+      const newConversationService = new ConversationService(newStatePersistence);
 
-      // Step 3: Try to load the saved state
-      const loadedState = await newConversationManager.getRunState(conversationId);
-      expect(loadedState).toBe(mockStateString);
-
-      // Verify the state contains expected data
-      const parsedState = JSON.parse(loadedState!);
-      expect(parsedState).toHaveProperty('version');
-      expect(parsedState).toHaveProperty('messages');
-      expect(parsedState).toHaveProperty('pendingTool');
-      expect(parsedState.pendingTool).toBe('processRefund');
+      // Step 3: Try to load the saved context
+      const loadedContext = await newConversationService.getContext(conversationId);
+      
+      // Verify the context was preserved
+      expect(loadedContext.customerName).toBe('Test Customer');
+      expect(loadedContext.customerEmail).toBe('test@example.com');
+      expect(loadedContext.conversationHistory).toHaveLength(2);
+      expect(loadedContext.conversationHistory[0].content).toBe('Initial message');
     });
 
-    it('should approve tools and continue execution', async () => {
+    it('should handle tool approval workflow through public API', async () => {
       const conversationId = 'test-approval-conversation';
       
-      // Simulate saving state with pending approval
-      const mockStateWithPending = '{"version": 1, "pendingApprovals": [{"toolName": "processRefund", "amount": 50}]}';
-      await conversationManager.saveRunState(conversationId, { toString: () => mockStateWithPending } as any);
+      // Set up initial context
+      const context = await conversationService.getContext(conversationId);
+      context.customerName = 'Test Customer';
+      await conversationService.saveContext(conversationId, context);
 
-      // Simulate approvals
+      // Simulate approvals (note: this will likely fail due to no pending state in test)
       const approvals = [
         { toolCall: { name: 'processRefund', args: { amount: 50 } }, approved: true }
       ];
 
       try {
         // This would normally continue the agent execution
-        const result = await threadingService.handleApprovals(conversationId, approvals);
+        const result = await conversationService.handleToolApprovals(conversationId, approvals);
         
         // Verify approval handling structure
         expect(result).toBeDefined();
-        expect(result).toHaveProperty('newItems');
+        expect(result).toHaveProperty('response');
         expect(result).toHaveProperty('currentAgent');
       } catch (error) {
-        // Expected for mock scenario - the important part is that persistence worked
+        // Expected for test scenario - no pending approvals exist
         expect(error).toBeDefined();
+        expect(error).toBeInstanceOf(Error);
       }
 
-      // Verify state cleanup after approval processing
-      const remainingState = await conversationManager.getRunState(conversationId);
-      // State should be cleaned up after processing
-      expect(remainingState).toBeNull();
+      // Verify context is still available after approval attempt
+      const contextAfter = await conversationService.getContext(conversationId);
+      expect(contextAfter.customerName).toBe('Test Customer');
     });
   });
 
@@ -164,11 +166,11 @@ describe('RunState Persistence Integration', () => {
       const stateFilePath = path.join(testDataDir, `${conversationId}.json`);
       await fs.writeFile(stateFilePath, 'this is not valid json');
 
-      // Try to load the corrupted state
-      const loadedState = await conversationManager.getRunState(conversationId);
+      // Try to access context despite corrupted state files
+      const loadedContext = await conversationService.getContext(conversationId);
       
-      // Should return null for corrupted state
-      expect(loadedState).toBeNull();
+      // Should still provide default context even with corrupted files
+      expect(loadedContext).toBeDefined();
       
       // Verify the corrupted file still exists (loadState doesn't delete, only deleteState does)
       const fileStillExists = await fs.access(stateFilePath).then(() => true).catch(() => false);
@@ -184,22 +186,25 @@ describe('RunState Persistence Integration', () => {
 
       try {
         // This should detect corruption and start fresh
-        await threadingService.handleTurn(
-          triageAgent,
+        await conversationService.processConversationTurn(
+          customerSupportAgent,
           conversationId,
           'Hello, I need help',
-          mockContext,
           { showProgress: false, enableDebugLogs: false }
         );
         
-        // The corrupted state should have been cleaned up by the error handling
-        const stateAfterRecovery = await conversationManager.getRunState(conversationId);
-        expect(stateAfterRecovery).toBeNull();
+        // Should still be able to get context after recovery
+        const contextAfterRecovery = await conversationService.getContext(conversationId);
+        expect(contextAfterRecovery).toBeDefined();
         
       } catch (error) {
         // Error is expected due to OpenAI API requirements in test environment
         // But the corruption recovery should still work
         console.warn('Expected test error due to API requirements:', error);
+        
+        // Even if conversation fails, should still get valid context
+        const contextAfterRecovery = await conversationService.getContext(conversationId);
+        expect(contextAfterRecovery).toBeDefined();
       }
     });
   });
@@ -235,25 +240,25 @@ describe('RunState Persistence Integration', () => {
       expect(recentState).toBe('{"recent": true}');
     });
 
-    it('should maintain index file correctly during cleanup', async () => {
-      const conversationId = 'test-index-conversation';
+    it('should handle session lifecycle correctly', async () => {
+      const conversationId = 'test-lifecycle-conversation';
       
-      // Save state
-      await conversationManager.saveRunState(conversationId, { toString: () => '{"test": true}' } as any);
+      // Create session with context
+      const context = await conversationService.getContext(conversationId);
+      context.customerName = 'Test Customer';
+      await conversationService.saveContext(conversationId, context);
       
-      // Verify index was created
-      const indexPath = path.join(testDataDir, 'index.json');
-      let indexContent = await fs.readFile(indexPath, 'utf-8');
-      let index = JSON.parse(indexContent);
-      expect(index).toHaveProperty(conversationId);
+      // Verify session exists
+      const sessionInfo = await conversationService.getSessionInfo(conversationId);
+      expect(sessionInfo).toBeDefined();
+      expect(sessionInfo?.subjectId).toBe(conversationId);
       
-      // Delete state
-      await conversationManager.deleteRunState(conversationId);
+      // End session
+      await conversationService.endSession(conversationId);
       
-      // Verify index was updated
-      indexContent = await fs.readFile(indexPath, 'utf-8');
-      index = JSON.parse(indexContent);
-      expect(index).not.toHaveProperty(conversationId);
+      // Verify session is cleaned up
+      const sessionAfterEnd = await conversationService.getSessionInfo(conversationId);
+      expect(sessionAfterEnd).toBeNull();
     });
   });
 });

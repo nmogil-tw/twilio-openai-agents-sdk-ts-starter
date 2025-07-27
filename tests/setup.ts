@@ -58,7 +58,9 @@ jest.mock('@openai/agents', () => ({
   Agent: jest.fn(),
   Runner: jest.fn(),
   RunState: {
-    fromString: jest.fn(),
+    fromString: jest.fn().mockResolvedValue({
+      toString: jest.fn().mockReturnValue('mock-state-string')
+    }),
     toString: jest.fn()
   },
   tool: jest.fn((config) => ({

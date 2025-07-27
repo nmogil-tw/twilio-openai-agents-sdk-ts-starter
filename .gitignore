@@ -4,6 +4,7 @@ logs/
 docs/
 .claude/
 data/
+notes/
 
 # Build output
 dist/

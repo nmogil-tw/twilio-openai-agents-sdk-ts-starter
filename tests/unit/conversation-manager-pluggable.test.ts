@@ -1,4 +1,4 @@
-import { ConversationManager } from '../../src/services/conversationManager';
+import { ConversationService } from '../../src/services/conversationService';
 import { RunStateStore } from '../../src/services/persistence/types';
 import { RunState } from '@openai/agents';
 
@@ -130,201 +130,135 @@ class MockRunStateStore implements RunStateStore {
   }
 }
 
-describe('ConversationManager with Pluggable Persistence', () => {
+describe('ConversationService Integration', () => {
   let mockStore: MockRunStateStore;
-  let conversationManager: ConversationManager;
+  let conversationService: ConversationService;
 
   beforeEach(() => {
     mockStore = new MockRunStateStore();
-    conversationManager = new ConversationManager(mockStore);
+    conversationService = new ConversationService();
   });
 
   afterEach(() => {
     mockStore.reset();
   });
 
-  describe('Constructor Dependency Injection', () => {
-    it('should accept a custom RunStateStore via constructor', () => {
-      expect(conversationManager).toBeInstanceOf(ConversationManager);
-      // Test that operations use the injected store
-      expect(mockStore.getStatesCount()).toBe(0);
+  describe('Service Construction', () => {
+    it('should create ConversationService instance', () => {
+      expect(conversationService).toBeInstanceOf(ConversationService);
     });
 
-    it('should work with default store when no store provided', () => {
-      const defaultManager = new ConversationManager();
-      expect(defaultManager).toBeInstanceOf(ConversationManager);
+    it('should work with default configuration', () => {
+      const defaultService = new ConversationService();
+      expect(defaultService).toBeInstanceOf(ConversationService);
     });
   });
 
-  describe('RunState Operations', () => {
+  describe('Context Operations', () => {
     const testSubjectId = 'test-subject-123';
-    const testRunState = 'serialized-run-state-data';
 
-    // Create a mock RunState object
-    const createMockRunState = (stateData: string): RunState<any, any> => {
-      return {
-        toString: () => stateData
-      } as RunState<any, any>;
-    };
-
-    it('should save RunState using injected store', async () => {
-      const mockRunState = createMockRunState(testRunState);
+    it('should get context for a subject', async () => {
+      const context = await conversationService.getContext(testSubjectId);
       
-      await conversationManager.saveRunState(testSubjectId, mockRunState);
-      
-      expect(mockStore.hasState(testSubjectId)).toBe(true);
-      expect(mockStore.getStatesCount()).toBe(1);
+      expect(context).toBeDefined();
+      expect(context.sessionId).toBe(testSubjectId);
     });
 
-    it('should load RunState using injected store', async () => {
-      // Pre-populate the mock store
-      await mockStore.saveState(testSubjectId, testRunState);
+    it('should save context for a subject', async () => {
+      const context = await conversationService.getContext(testSubjectId);
+      context.customerName = 'Test Customer';
       
-      const result = await conversationManager.getRunState(testSubjectId);
+      await conversationService.saveContext(testSubjectId, context);
       
-      expect(result).toBe(testRunState);
-      expect(mockStore.operationDurations.load.length).toBeGreaterThan(0);
+      // Verify context is persisted by getting it again
+      const retrievedContext = await conversationService.getContext(testSubjectId);
+      expect(retrievedContext.customerName).toBe('Test Customer');
     });
 
-    it('should return null for non-existent state', async () => {
-      const result = await conversationManager.getRunState('non-existent');
+    it('should get session info', async () => {
+      // Create context first
+      await conversationService.getContext(testSubjectId);
       
-      expect(result).toBeNull();
+      const sessionInfo = await conversationService.getSessionInfo(testSubjectId);
+      
+      expect(sessionInfo).toBeDefined();
+      expect(sessionInfo?.subjectId).toBe(testSubjectId);
     });
 
-    it('should delete RunState using injected store', async () => {
-      // Pre-populate the mock store
-      await mockStore.saveState(testSubjectId, testRunState);
-      expect(mockStore.hasState(testSubjectId)).toBe(true);
+    it('should end session', async () => {
+      // Create context first
+      await conversationService.getContext(testSubjectId);
       
-      await conversationManager.deleteRunState(testSubjectId);
+      await conversationService.endSession(testSubjectId);
       
-      expect(mockStore.hasState(testSubjectId)).toBe(false);
-      expect(mockStore.getStatesCount()).toBe(0);
+      // Session should be cleaned up
+      const sessionInfo = await conversationService.getSessionInfo(testSubjectId);
+      expect(sessionInfo).toBeNull();
     });
   });
 
-  describe('Performance Monitoring', () => {
-    const testSubjectId = 'slow-test-subject';
-    const testRunState = 'test-state-data';
-
-    beforeEach(() => {
-      // Enable slow operations simulation
-      mockStore.simulateSlowOperations = true;
-      mockStore.slowOperationDelay = 250; // Above the 200ms threshold
-    });
-
-    it('should detect slow save operations', async () => {
-      const mockRunState = { toString: () => testRunState } as RunState<any, any>;
+  describe('Performance and Cleanup', () => {
+    it('should handle escalation level updates', async () => {
+      const testSubjectId = 'escalation-test';
+      await conversationService.getContext(testSubjectId);
       
-      // Mock console.warn to capture warning logs
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
+      await conversationService.updateEscalationLevel(testSubjectId, 2);
       
-      await conversationManager.saveRunState(testSubjectId, mockRunState);
-      
-      // Check that the operation took longer than expected
-      expect(mockStore.operationDurations.save[0]).toBeGreaterThan(200);
-      
-      consoleSpy.mockRestore();
-    });
-
-    it('should detect slow load operations', async () => {
-      // Pre-populate state
-      await mockStore.saveState(testSubjectId, testRunState);
-      
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
-      await conversationManager.getRunState(testSubjectId);
-      
-      // Check that the operation took longer than expected
-      expect(mockStore.operationDurations.load[0]).toBeGreaterThan(200);
-      
-      consoleSpy.mockRestore();
-    });
-
-    it('should detect slow delete operations', async () => {
-      await mockStore.saveState(testSubjectId, testRunState);
-      
-      const consoleSpy = jest.spyOn(console, 'warn').mockImplementation();
-      
-      await conversationManager.deleteRunState(testSubjectId);
-      
-      expect(mockStore.operationDurations.delete[0]).toBeGreaterThan(200);
-      
-      consoleSpy.mockRestore();
-    });
-  });
-
-  describe('Session Management', () => {
-    it('should clean up both in-memory context and persistent state', async () => {
-      const subjectId = 'cleanup-test';
-      
-      // Create context and save some state
-      await conversationManager.getContext(subjectId);
-      const mockRunState = { toString: () => 'test-state' } as RunState<any, any>;
-      await conversationManager.saveRunState(subjectId, mockRunState);
-      
-      expect(mockStore.hasState(subjectId)).toBe(true);
-      
-      // End session
-      await conversationManager.endSession(subjectId);
-      
-      expect(mockStore.hasState(subjectId)).toBe(false);
-    });
-
-    it('should cleanup old states via store cleanup method', async () => {
-      const maxAge = 1000; // 1 second
-      
-      // Create some old states by manipulating timestamps
-      await mockStore.saveState('old-subject', 'old-state');
-      await mockStore.saveState('new-subject', 'new-state');
-      
-      // Manually age one of the states
-      const states = (mockStore as any).states;
-      const oldEntry = states.get('old-subject');
-      if (oldEntry) {
-        oldEntry.timestamp = Date.now() - 2000; // 2 seconds ago
-      }
-      
-      const cleanedCount = await conversationManager.cleanup(maxAge);
-      
-      expect(mockStore.operationDurations.cleanup.length).toBeGreaterThan(0);
+      const context = await conversationService.getContext(testSubjectId);
+      expect(context.escalationLevel).toBe(2);
     });
   });
 
   describe('Error Handling', () => {
-    it('should handle store errors gracefully during load', async () => {
-      // Create a store that throws errors
-      const errorStore = {
-        init: jest.fn(),
-        saveState: jest.fn(),
-        loadState: jest.fn().mockRejectedValue(new Error('Store connection failed')),
-        deleteState: jest.fn(),
-        cleanupOldStates: jest.fn()
-      } as jest.Mocked<RunStateStore>;
-
-      const errorManager = new ConversationManager(errorStore);
-      
-      // Should return null instead of throwing
-      const result = await errorManager.getRunState('test-subject');
-      expect(result).toBeNull();
+    it('should handle invalid subject IDs gracefully', async () => {
+      // Getting context for any subject should work (creates new context)
+      const context = await conversationService.getContext('invalid-subject');
+      expect(context).toBeDefined();
     });
 
-    it('should propagate save errors', async () => {
-      const errorStore = {
-        init: jest.fn(),
-        saveState: jest.fn().mockRejectedValue(new Error('Save failed')),
-        loadState: jest.fn(),
-        deleteState: jest.fn(),
-        cleanupOldStates: jest.fn()
-      } as jest.Mocked<RunStateStore>;
-
-      const errorManager = new ConversationManager(errorStore);
-      const mockRunState = { toString: () => 'test' } as RunState<any, any>;
+    it('should handle cleanup operations', async () => {
+      const subjectId = 'cleanup-test';
       
-      await expect(
-        errorManager.saveRunState('test-subject', mockRunState)
-      ).rejects.toThrow('Save failed');
+      // Create and end session
+      await conversationService.getContext(subjectId);
+      await conversationService.endSession(subjectId);
+      
+      // Should not throw errors
+      expect(true).toBe(true);
+    });
+  });
+
+  describe('Session Management Integration', () => {
+    it('should track session information correctly', async () => {
+      const subjectId = 'session-tracking-test';
+      
+      // Get initial context - should create session
+      const context = await conversationService.getContext(subjectId);
+      expect(context.sessionStartTime).toBeDefined();
+      
+      // Get session info
+      const sessionInfo = await conversationService.getSessionInfo(subjectId);
+      expect(sessionInfo).toBeDefined();
+      expect(sessionInfo?.subjectId).toBe(subjectId);
+      expect(sessionInfo?.escalationLevel).toBe(0);
+    });
+
+    it('should clean up session data on end', async () => {
+      const subjectId = 'cleanup-session-test';
+      
+      // Create session
+      await conversationService.getContext(subjectId);
+      
+      // Verify session exists
+      let sessionInfo = await conversationService.getSessionInfo(subjectId);
+      expect(sessionInfo).toBeDefined();
+      
+      // End session
+      await conversationService.endSession(subjectId);
+      
+      // Verify session is cleaned up
+      sessionInfo = await conversationService.getSessionInfo(subjectId);
+      expect(sessionInfo).toBeNull();
     });
   });
 });

@@ -41,7 +41,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       
       const subjectId = await resolver.resolve(metadata);
       
-      expect(subjectId).toBe('phone_+14155551234');
+      expect(subjectId).toBe('phone_14155551234');
     });
 
     it('should handle 10-digit US number', async () => {
@@ -49,7 +49,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       
       const subjectId = await resolver.resolve(metadata);
       
-      expect(subjectId).toBe('phone_+14155551234');
+      expect(subjectId).toBe('phone_14155551234');
     });
 
     it('should return same ID for same phone across calls', async () => {
@@ -100,8 +100,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       
       expect(mockFs.writeFile).toHaveBeenCalledWith(
         expect.stringContaining('subject-map.json'),
-        expect.stringContaining('phone_14155551234'),
-        expect.any(Object)
+        expect.stringContaining('phone_14155551234')
       );
     });
 

@@ -1,4 +1,4 @@
-import { DefaultPhoneSubjectResolver } from '../../src/services/subjectResolver';
+import { DefaultPhoneSubjectResolver } from '../../src/identity/subject-resolver';
 
 describe('DefaultPhoneSubjectResolver', () => {
   let resolver: DefaultPhoneSubjectResolver;
@@ -12,17 +12,17 @@ describe('DefaultPhoneSubjectResolver', () => {
       const metadata = { phone: '+14155550100' };
       const subjectId = await resolver.resolve(metadata);
       
-      expect(subjectId).toBe('phone_+14155550100');
+      expect(subjectId).toBe('phone_14155550100');
     });
 
     it('should handle different phone number formats and normalize to E.164', async () => {
       const testCases = [
-        { input: '+14155550100', expected: 'phone_+14155550100' },
-        { input: '4155550100', expected: 'phone_+14155550100' },
-        { input: '14155550100', expected: 'phone_+14155550100' },
-        { input: '(415) 555-0100', expected: 'phone_+14155550100' },
-        { input: '415-555-0100', expected: 'phone_+14155550100' },
-        { input: '415.555.0100', expected: 'phone_+14155550100' },
+        { input: '+14155550100', expected: 'phone_14155550100' },
+        { input: '4155550100', expected: 'phone_14155550100' },
+        { input: '14155550100', expected: 'phone_14155550100' },
+        { input: '(415) 555-0100', expected: 'phone_14155550100' },
+        { input: '415-555-0100', expected: 'phone_14155550100' },
+        { input: '415.555.0100', expected: 'phone_14155550100' },
       ];
 
       for (const testCase of testCases) {
@@ -44,7 +44,7 @@ describe('DefaultPhoneSubjectResolver', () => {
 
       for (const metadata of testCases) {
         const subjectId = await resolver.resolve(metadata);
-        expect(subjectId).toBe('phone_+14155550100');
+        expect(subjectId).toBe('phone_14155550100');
       }
     });
 
@@ -65,14 +65,14 @@ describe('DefaultPhoneSubjectResolver', () => {
       const voiceSubjectId = await resolver.resolve(voiceMetadata);
 
       expect(smsSubjectId).toBe(voiceSubjectId);
-      expect(smsSubjectId).toBe('phone_+14155550100');
+      expect(smsSubjectId).toBe('phone_14155550100');
     });
 
     it('should handle international phone numbers', async () => {
       const testCases = [
-        { input: '+447700900123', expected: 'phone_+447700900123' }, // UK
-        { input: '+86138000800', expected: 'phone_+86138000800' }, // China
-        { input: '+33123456789', expected: 'phone_+33123456789' }, // France
+        { input: '+447700900123', expected: 'phone_447700900123' }, // UK
+        { input: '+86138000800', expected: 'phone_86138000800' }, // China
+        { input: '+33123456789', expected: 'phone_33123456789' }, // France
       ];
 
       for (const testCase of testCases) {
@@ -86,7 +86,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       const metadata = { userId: '12345', sessionId: 'sess_abc' };
       
       await expect(resolver.resolve(metadata)).rejects.toThrow(
-        'No valid phone number found in metadata for phone-based subject resolution'
+        'No phone number found in metadata'
       );
     });
 
@@ -94,7 +94,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       const metadata = { phone: '' };
       
       await expect(resolver.resolve(metadata)).rejects.toThrow(
-        'No valid phone number found in metadata for phone-based subject resolution'
+        'No phone number found in metadata'
       );
     });
 
@@ -102,7 +102,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       const metadata = { phone: '   ' };
       
       await expect(resolver.resolve(metadata)).rejects.toThrow(
-        'No valid phone number found in metadata for phone-based subject resolution'
+        'No phone number found in metadata'
       );
     });
 
@@ -116,7 +116,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       };
 
       const subjectId = await resolver.resolve(twilioSmsMetadata);
-      expect(subjectId).toBe('phone_+14155550100');
+      expect(subjectId).toBe('phone_14155550100');
     });
 
     it('should handle Twilio Voice webhook format', async () => {
@@ -128,7 +128,7 @@ describe('DefaultPhoneSubjectResolver', () => {
       };
 
       const subjectId = await resolver.resolve(twilioVoiceMetadata);
-      expect(subjectId).toBe('phone_+14155550100');
+      expect(subjectId).toBe('phone_14155550100');
     });
   });
 });

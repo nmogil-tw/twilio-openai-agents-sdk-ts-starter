@@ -1,11 +1,11 @@
 import { RunState, Agent } from '@openai/agents';
-import { triageAgent } from '../../src/agents/legacy/triage';
+import { customerSupportAgent } from '../../src/agents/customer-support';
 
 describe('RunState Serialization', () => {
   let agent: Agent;
 
   beforeEach(() => {
-    agent = triageAgent;
+    agent = customerSupportAgent;
   });
 
   describe('serialize and deserialize', () => {

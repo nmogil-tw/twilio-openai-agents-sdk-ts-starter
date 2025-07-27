@@ -113,6 +113,7 @@ describe('Event System', () => {
       const listener1 = () => {};
       const listener2 = () => {};
 
+      // Should have no listeners left for custom events (error listener may remain)
       expect(testEventBus.listenerCount('conversation_start')).toBe(0);
 
       testEventBus.on('conversation_start', listener1);
@@ -174,7 +175,8 @@ describe('Event System', () => {
 
       const stats = testEventBus.getStats();
       
-      expect(stats.totalListeners).toBe(3);
+      // Total should be 4: 3 custom listeners + 1 built-in error listener
+      expect(stats.totalListeners).toBe(4);
       expect(stats.eventCounts).toHaveProperty('conversation_start', 1);
       expect(stats.eventCounts).toHaveProperty('conversation_end', 1);
       expect(stats.eventCounts).toHaveProperty('escalation', 1);

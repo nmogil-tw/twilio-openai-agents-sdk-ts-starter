@@ -81,7 +81,7 @@ export class DefaultPhoneSubjectResolver implements SubjectResolver {
   }
 
   private extractPhoneNumber(raw: Record<string, any>): string | null {
-    const phoneKeys = ['from', 'From', 'phone', 'phoneNumber', 'callerPhone'];
+    const phoneKeys = ['from', 'From', 'phone', 'phoneNumber', 'callerPhone', 'senderPhone'];
     
     for (const key of phoneKeys) {
       const value = raw[key];
