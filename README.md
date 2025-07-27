@@ -7,33 +7,37 @@ A complete omnichannel AI agent platform built with the OpenAI Agents SDK and Tw
 - **📱 SMS Channel**: Full SMS webhook integration with Twilio
 - **📞 Voice Channel**: Real-time voice conversations with Twilio ConversationRelay
 - **🔄 Cross-Channel Continuity**: Seamless conversation continuity between SMS and Voice
-- **🤖 Multi-Agent Architecture**: Specialized agents for different types of inquiries
+- **🤖 Intelligent Customer Support Agent**: Single comprehensive agent handling all customer inquiries
 - **👥 Human-in-the-Loop**: Approval workflows for sensitive operations
 - **📊 Comprehensive Logging**: Structured logging with Winston for debugging and monitoring
 - **🛡️ Security Guardrails**: PII detection and input/output validation
 - **📈 Context Management**: Subject-based conversation persistence
+- **🔧 Flexible Tool System**: Extensible tools for customer lookup, orders, escalation, and SMS
+- **💾 Pluggable Persistence**: File, Redis, or PostgreSQL storage for conversation state
 
 ## Architecture
 
-### Agent Hierarchy
+### Agent Design
 ```
-Triage Agent (Main Entry Point)
-├── FAQ Agent (Knowledge Base Queries)
-├── Order Management Agent (Order Operations)
-├── Billing Agent (Payment & Billing Issues)
-├── Technical Support Agent (Product Issues)
-└── Escalation Agent (Human Handoff)
+Customer Support Agent (Single Comprehensive Agent)
+├── Customer Lookup & Intent Classification
+├── Order Management (lookup, tracking, refunds)
+├── Billing Support (payments, charges, invoices)
+├── Technical Support (troubleshooting, diagnostics)
+├── FAQ & General Information
+└── Escalation to Human Agents
 ```
 
 ### Core Components
 
-- **Triage Agent**: Routes customer inquiries to specialized agents
-- **Specialized Agents**: Handle specific types of customer requests
+- **Customer Support Agent**: Single intelligent agent handling all customer inquiries with specialized guidance for different domains
+- **Agent Registry**: Dynamic agent loading and configuration system
 - **Streaming Service**: Real-time response streaming with interruption handling
 - **Context Manager**: Session and conversation state management
 - **State Persistence**: RunState persistence for conversation continuity across restarts
-- **Tools**: Customer lookup, order management, escalation capabilities
+- **Tools**: Customer lookup, order management, escalation capabilities, SMS notifications
 - **Guardrails**: Input/output validation and PII protection
+- **Subject Resolution**: Phone-based customer identification across channels
 
 ## Quick Start
 
@@ -54,17 +58,23 @@ npm install
 cp .env.example .env
 ```
 
-3. **Configure your OpenAI API key** in the `.env` file:
+3. **Configure environment variables** in the `.env` file:
 ```bash
+# Required - OpenAI Configuration
 OPENAI_API_KEY=sk-your-openai-api-key-here
-```
+AGENT_MODEL=gpt-4o-mini
 
-4. **Configure Twilio credentials** in the `.env` file:
-```bash
+# Required - Twilio Configuration
 TWILIO_ACCOUNT_SID=your-twilio-account-sid
 TWILIO_API_KEY_SID=your-twilio-api-key-sid
 TWILIO_API_KEY_SECRET=your-twilio-api-key-secret
 TWILIO_PHONE_NUMBER=your-twilio-phone-number
+
+# Optional - Logging and Performance
+LOG_LEVEL=info
+TRACING_ENABLED=true
+MAX_TURNS=10
+STREAM_TIMEOUT_MS=30000
 ```
 
 5. **Start the server**:
@@ -365,98 +375,184 @@ The test simulates:
 
 ## Agent Capabilities
 
-### Triage Agent
-- **Primary Function**: Route customer inquiries to appropriate specialists
-- **Capabilities**: Intent classification, customer lookup, initial information gathering
-- **Tools**: Customer lookup, intent classification
+### Customer Support Agent
+A single, comprehensive AI agent that intelligently handles all types of customer inquiries with specialized guidance for different domains.
 
-### FAQ Agent
-- **Primary Function**: Handle general questions and provide information
-- **Capabilities**: Policy explanations, general guidance, basic troubleshooting
-- **Escalation**: Routes complex issues to specialized agents
+#### Core Capabilities
+- **Intent Classification**: Automatically determines the type of customer inquiry
+- **Customer Lookup**: Retrieves customer information and account details
+- **Order Management**: Complete order lifecycle support including lookup, tracking, modifications, and refunds
+- **Billing Support**: Payment processing, billing explanations, charge inquiries, and invoice assistance
+- **Technical Support**: Troubleshooting guidance, error diagnosis, and step-by-step resolution
+- **FAQ Assistance**: General information, policy explanations, and self-service guidance
+- **Escalation Management**: Intelligent escalation to human agents when needed
 
-### Order Management Agent
-- **Primary Function**: Handle all order-related inquiries
-- **Capabilities**: Order lookup, tracking, modifications, returns, refunds
-- **Tools**: Order lookup, tracking information, refund processing (with approval)
+#### Available Tools
+- **Customer Lookup Tool**: Retrieve customer information and history
+- **Intent Classification Tool**: Analyze and categorize customer requests
+- **Order Lookup Tool**: Access order details and status information
+- **Order Status Tool**: Get real-time tracking and delivery information
+- **Process Refund Tool**: Handle refund requests (with approval workflow)
+- **Tracking Tool**: Provide shipment tracking details
+- **Escalate to Human Tool**: Create escalation tickets for complex issues
+- **Send SMS Tool**: Send notifications and updates via SMS
 
-### Billing Agent
-- **Primary Function**: Manage payment and billing inquiries
-- **Capabilities**: Payment history, billing explanations, payment processing
-- **Security**: PII protection, secure payment handling
+#### Specialized Domain Guidance
+The agent uses domain-specific instructions for:
+- **Billing Inquiries**: Secure handling of payment information, fraud detection, dispute management
+- **Order Management**: Order lifecycle management, shipping coordination, return processing
+- **Technical Support**: Structured troubleshooting, error collection, solution documentation
+- **General Support**: Policy explanations, self-service guidance, information provision
 
-### Technical Support Agent
-- **Primary Function**: Provide technical assistance and troubleshooting
-- **Capabilities**: Diagnostic guidance, step-by-step instructions, issue resolution
-- **Escalation**: Complex technical issues requiring human expertise
-
-### Escalation Agent
-- **Primary Function**: Handle human handoffs and complex issues
-- **Capabilities**: Ticket creation, priority assessment, human notification
-- **Tools**: Escalation ticket creation with approval workflows
+#### Security & Approval Workflows
+- PII detection and protection
+- Human approval required for sensitive operations (refunds, escalations)
+- Secure handling of payment and personal information
+- Complete audit trail for all customer interactions
 
 ## Development
 
 ### Project Structure
 ```
 src/
+├── agents/           # Agent definitions
+│   ├── customer-support.ts # Main customer support agent
+│   └── index.ts      # Agent exports
 ├── channels/         # Communication channel adapters
 │   ├── sms/         # SMS (Twilio) integration
+│   │   └── adapter.ts
 │   ├── voice/       # Voice (Twilio) integration
-│   ├── ChannelAdapter.ts # Channel interface
-│   └── index.ts     # Channel exports
+│   │   ├── adapter.ts
+│   │   ├── types.ts
+│   │   └── voiceSession.ts
+│   ├── web/         # Web channel adapter
+│   │   └── adapter.ts
+│   ├── utils/       # Channel utilities
+│   │   └── stream.ts
+│   ├── BaseAdapter.ts
+│   ├── ChannelAdapter.ts
+│   └── index.ts
 ├── config/           # Environment and configuration
-├── agents/           # Agent definitions
-├── tools/            # Tool implementations
-├── guardrails/       # Input/output validation
-├── identity/         # Subject resolution
-├── registry/         # Agent and tool registries
+│   ├── environment.ts
+│   └── persistence.ts
 ├── context/          # Session and context management
-├── utils/            # Utilities and logging
+│   ├── manager.ts
+│   ├── types.ts
+│   └── index.ts
+├── events/           # Event system
+│   ├── bus.ts
+│   ├── eventLogger.ts
+│   ├── types.ts
+│   └── index.ts
+├── guardrails/       # Input/output validation
+│   ├── input.ts
+│   ├── output.ts
+│   └── index.ts
+├── identity/         # Subject resolution
+│   └── subject-resolver.ts
+├── registry/         # Agent registry
+│   └── agent-registry.ts
 ├── services/         # Core services
-└── server.ts        # Main server entry point
+│   ├── persistence/ # State persistence adapters
+│   │   ├── fileStore.ts
+│   │   ├── redisStore.ts
+│   │   ├── postgresStore.ts
+│   │   ├── types.ts
+│   │   └── index.ts
+│   ├── conversationService.ts
+│   ├── subjectResolver.ts
+│   ├── persistence.ts
+│   └── index.ts
+├── tools/            # Tool implementations
+│   ├── customer.ts  # Customer lookup tools
+│   ├── orders.ts    # Order management tools
+│   ├── order-status.ts # Order status tools
+│   ├── escalation.ts # Escalation tools
+│   ├── sms.ts       # SMS notification tools
+│   ├── simple-tools.ts # Basic tools
+│   └── index.ts
+├── types/            # Common type definitions
+│   └── common.ts
+├── utils/            # Utilities and logging
+│   ├── logger.ts
+│   └── toolProxy.ts
+├── server.ts         # Main server entry point
+└── simple-main.ts    # Simplified entry point
 ```
 
-### Adding a New Agent in 3 Lines
+### Agent Configuration
 
-With the **Dynamic Agent Registry**, adding a new agent is as simple as:
+The system uses a single comprehensive customer support agent configured in `agents.config.ts`:
 
-1. **Create your agent file** (e.g., `src/agents/hr-agent.ts`):
 ```typescript
-export const hrAgent = new Agent({
-  name: 'HR Agent',
-  instructions: 'Handle HR-related inquiries...',
-  tools: [/* your tools */]
+export default {
+  defaultAgent: 'customer-support',
+  agents: {
+    'customer-support': 'src/agents/customer-support.ts',
+    // Add additional agent configurations here
+  },
+} as const;
+```
+
+### Adding a New Agent
+
+To add a new agent to the system:
+
+1. **Create your agent file** (e.g., `src/agents/new-agent.ts`):
+```typescript
+import { Agent } from '@openai/agents';
+import { inputGuardrails } from '../guardrails/input';
+import { outputGuardrails } from '../guardrails/output';
+import { /* your tools */ } from '../tools';
+
+export const newAgent = new Agent({
+  name: 'New Agent',
+  instructions: 'Your agent instructions...',
+  tools: [/* your tools */],
+  inputGuardrails,
+  outputGuardrails,
+  model: 'gpt-4o-mini'
 });
 ```
 
-2. **Add to config** in `agents.config.ts`:
+2. **Add to agents configuration** in `agents.config.ts`:
 ```typescript
-hr: {
-  entry: 'src/agents/hr-agent.ts',
-  tools: ['hrDatabase'],
-}
+export default {
+  defaultAgent: 'customer-support',
+  agents: {
+    'customer-support': 'src/agents/customer-support.ts',
+    'new-agent': 'src/agents/new-agent.ts',
+  },
+} as const;
 ```
 
-3. **Use it** anywhere in your code:
+3. **Update the default agent** if needed, or use the agent registry to access it:
 ```typescript
-import { threadingService } from './src/services/threading';
+import { agentRegistry } from './src/registry/agent-registry';
 
-// Simply use the agent name - the registry loads it dynamically!
-const result = await threadingService.handleTurn('hr', subjectId, userMessage);
+// Get the default agent
+const agent = await agentRegistry.getDefault();
+
+// Or get a specific agent
+const specificAgent = await agentRegistry.get('new-agent');
 ```
 
-That's it! No import statements, no manual registration - the registry handles everything automatically.
+### Agent Registry System
 
-### Adding New Agents (Detailed)
+The agent registry provides dynamic loading and management of agents:
 
-For more complex scenarios:
+- **Dynamic Loading**: Agents are loaded on-demand from configured file paths
+- **Type Safety**: Configuration is typed for compile-time validation
+- **Error Handling**: Graceful fallback when agents fail to load
+- **Singleton Pattern**: Single instance manages all agent access
 
-1. Create a new agent file in `src/agents/`
-2. Define the agent using the `Agent` class
-3. Add any required tools in `src/tools/`
-4. Export the agent in `src/agents/index.ts`
-5. Add routing logic in the conversation service
+```typescript
+// The registry automatically handles:
+// - Loading agents from configured paths
+// - Caching loaded agents for performance
+// - Error handling and logging
+// - Type-safe agent access
+```
 
 ### Adding New Tools
 
@@ -465,10 +561,52 @@ For more complex scenarios:
 3. Add logging and context management
 4. Export the tool in the appropriate index file
 
+### Available Scripts
+
+The project includes several npm scripts for development and maintenance:
+
+```bash
+# Development
+npm start           # Start the server (production)
+npm run dev         # Start with file watching (development)
+npm run build       # Compile TypeScript
+npm run typecheck   # Type checking without compilation
+
+# Testing
+npm test            # Run all tests
+npm run test:watch  # Run tests in watch mode
+npm run test:coverage # Run tests with coverage report
+
+# Maintenance
+npm run cleanup     # Clean up old conversation states (default: 7 days)
+npm run cleanup -- --days 3    # Clean up states older than 3 days
+npm run cleanup -- --hours 12  # Clean up states older than 12 hours
+
+# Documentation (if using Docusaurus)
+npm run docs:serve  # Serve documentation locally
+npm run docs:build  # Build documentation
+npm run docs:deploy # Deploy documentation
+```
+
+### Optional Dependencies
+
+For enhanced persistence capabilities, you can install additional dependencies:
+
+```bash
+# For Redis persistence
+npm install redis
+
+# For PostgreSQL persistence  
+npm install pg @types/pg
+```
+
+These are only required if you configure `PERSISTENCE_ADAPTER=redis` or `PERSISTENCE_ADAPTER=postgres`.
+
 ### Environment Variables
 
 #### Core Configuration
 - `OPENAI_API_KEY` - Your OpenAI API key (required)
+- `AGENT_MODEL` - OpenAI model to use (e.g., gpt-4o, gpt-4o-mini, gpt-3.5-turbo)
 - `WORKFLOW_NAME` - Name for the workflow (default: "Customer Service Agent")
 - `LOG_LEVEL` - Logging level: debug, info, warn, error (default: info)
 - `TRACING_ENABLED` - Enable SDK tracing (default: true)
@@ -481,6 +619,7 @@ For more complex scenarios:
 - `STATE_MAX_AGE` - Maximum age for states in milliseconds (default: 86400000 / 24 hours)
 
 #### Redis Configuration (when PERSISTENCE_ADAPTER=redis)
+*Note: Requires installing redis client: `npm install redis`*
 - `REDIS_HOST` - Redis hostname (default: localhost)
 - `REDIS_PORT` - Redis port (default: 6379)
 - `REDIS_PASSWORD` - Redis password (optional)
@@ -488,6 +627,7 @@ For more complex scenarios:
 - `REDIS_KEY_PREFIX` - Key prefix for Redis keys (default: runstate:)
 
 #### PostgreSQL Configuration (when PERSISTENCE_ADAPTER=postgres)
+*Note: Requires installing postgres client: `npm install pg @types/pg`*
 - `DATABASE_URL` - PostgreSQL connection string (optional, overrides individual settings)
 - `POSTGRES_HOST` - PostgreSQL hostname (default: localhost)
 - `POSTGRES_PORT` - PostgreSQL port (default: 5432)
@@ -497,10 +637,18 @@ For more complex scenarios:
 - `POSTGRES_TABLE_NAME` - Table name for states (default: conversation_states)
 - `POSTGRES_SSL` - Enable SSL connection (default: false)
 
+#### Twilio Configuration
+- `TWILIO_ACCOUNT_SID` - Your Twilio Account SID (required)
+- `TWILIO_API_KEY_SID` - Your Twilio API Key SID (required)
+- `TWILIO_API_KEY_SECRET` - Your Twilio API Key Secret (required)
+- `TWILIO_PHONE_NUMBER` - Your Twilio phone number (required)
+
 #### Server Configuration
 - `PORT` - Server port (default: 3001)
-- `TWILIO_WEBSOCKET_URL` - WebSocket URL for Twilio Conversation Relay
 - `HOST` - Server host (default: 0.0.0.0)
+
+#### Subject Resolution Configuration
+- `SUBJECT_RESOLVER` - Subject resolver type: phone, crm (default: phone)
 
 ## Features in Detail
 
@@ -632,11 +780,41 @@ class RedisStateStore implements RunStateStore {
 
 ## Testing
 
+The project includes comprehensive test coverage:
+
+### Test Structure
+- **Unit Tests**: `tests/unit/` - Individual component testing
+- **Integration Tests**: `tests/integration/` - End-to-end workflow testing
+- **Manual Tests**: `tests/manual/` - Interactive testing scenarios
+
+### Running Tests
+```bash
+# Run all tests
+npm test
+
+# Run specific test file
+npm test -- tests/integration/crossChannelContinuity.test.ts
+
+# Run with coverage
+npm run test:coverage
+
+# Watch mode for development
+npm run test:watch
+```
+
+### Mock Data
 The system includes mock data for testing purposes:
 
 - **Mock Customers**: John Doe (premium), Jane Smith (basic)
 - **Mock Orders**: ORD_12345 (shipped), ORD_67890 (pending)
 - **Mock Scenarios**: Various customer service scenarios
+
+### Key Test Features
+- Cross-channel continuity testing
+- Approval workflow testing
+- Persistence adapter testing
+- Streaming response testing
+- Error handling and recovery testing
 
 ## Logging
 
