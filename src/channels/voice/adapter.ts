@@ -1,11 +1,15 @@
+import express from 'express';
 import { WebSocket } from 'ws';
 import { BaseAdapter } from '../BaseAdapter';
 import { logger } from '../../utils/logger';
 import { SubjectResolver } from '../../identity/subject-resolver';
 import { TwilioVoiceMessage, TwilioVoiceResponse } from './types';
+import { VoiceSession } from './voiceSession';
+import { Agent } from '@openai/agents';
+import { conversationService } from '../../services/conversationService';
 
 interface WebSocketWithSession extends WebSocket {
-  voiceSession?: any;
+  voiceSession?: VoiceSession;
 }
 
 /**
@@ -28,6 +32,9 @@ interface WebSocketWithSession extends WebSocket {
  * ```
  */
 export class VoiceAdapter extends BaseAdapter {
+  // Session management - tracks active voice sessions
+  private voiceSessions = new Map<string, VoiceSession>();
+  
   // Transcript batching state - tracks multiple partial transcripts per session
   private transcriptBatches = new Map<string, string[]>();
   private batchTimeouts = new Map<string, NodeJS.Timeout>();
@@ -297,6 +304,251 @@ export class VoiceAdapter extends BaseAdapter {
       operation: 'voice_adapter_cleanup',
       adapterName: 'voice'
     });
+  }
+
+  /**
+   * Process Twilio voice webhook and return TwiML response.
+   * 
+   * This method handles both GET and POST requests to the voice webhook endpoint
+   * and returns TwiML that connects the call to the ConversationRelay WebSocket.
+   * 
+   * @param req - Express request object from Twilio voice webhook
+   * @param res - Express response object to send TwiML
+   * @param agent - Agent instance (not used for webhook, but kept for consistency)
+   */
+  async processVoiceWebhook(
+    req: express.Request, 
+    res: express.Response, 
+    agent: Agent
+  ): Promise<void> {
+    const isPost = req.method === 'POST';
+    const logData = isPost ? {
+      from: req.body.From,
+      callSid: req.body.CallSid,
+      callStatus: req.body.CallStatus
+    } : {
+      from: req.query.From,
+      callSid: req.query.CallSid
+    };
+
+    logger.info(`Voice webhook received (${req.method})`, {
+      operation: 'voice_webhook',
+      adapterName: 'voice'
+    }, logData);
+
+    // Generate TwiML response that connects to ConversationRelay WebSocket
+    const host = req.get('host');
+    const protocol = req.get('x-forwarded-proto') || (req.secure ? 'https' : 'http');
+    const wsProtocol = protocol === 'https' ? 'wss' : 'ws';
+    
+    const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <ConversationRelay url="${wsProtocol}://${host}/conversation-relay" />
+    </Connect>
+</Response>`;
+    
+    res.type('application/xml');
+    res.send(twimlResponse);
+
+    logger.debug('Voice webhook TwiML response sent', {
+      operation: 'voice_webhook_response',
+      adapterName: 'voice'
+    }, {
+      host,
+      protocol: wsProtocol
+    });
+  }
+
+  /**
+   * Handle WebSocket connection for ConversationRelay.
+   * 
+   * This method manages the complete WebSocket lifecycle including session creation,
+   * message routing, error handling, and cleanup.
+   * 
+   * @param ws - WebSocket connection from Twilio ConversationRelay
+   * @param req - Express request object containing connection metadata
+   * @param agent - Agent instance to process voice messages
+   */
+  async processConversationRelay(
+    ws: WebSocketWithSession,
+    req: express.Request,
+    agent: Agent
+  ): Promise<void> {
+    const sessionId = `voice-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    
+    logger.info('Voice WebSocket connection established', {
+      sessionId,
+      operation: 'voice_websocket_connection'
+    }, {
+      remoteAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    // Create and store voice session
+    const voiceSession = new VoiceSession(sessionId);
+    ws.voiceSession = voiceSession;
+    this.voiceSessions.set(sessionId, voiceSession);
+
+    // Handle incoming messages
+    ws.on('message', async (data: Buffer) => {
+      try {
+        const message: TwilioVoiceMessage = JSON.parse(data.toString());
+        
+        logger.debug('Voice WebSocket message received', {
+          sessionId,
+          operation: 'voice_websocket_message'
+        }, {
+          messageType: message.type,
+          hasData: !!message.data
+        });
+
+        await this.processVoiceMessage(voiceSession, message, ws, agent);
+
+      } catch (error) {
+        logger.error('Voice WebSocket message processing failed', error as Error, {
+          sessionId,
+          operation: 'voice_websocket_message'
+        });
+
+        // Send error response to Twilio
+        const errorResponse: TwilioVoiceResponse = {
+          type: 'text',
+          token: 'I apologize, but I\'m experiencing technical difficulties. Please try again.',
+          last: true
+        };
+
+        try {
+          ws.send(JSON.stringify(errorResponse));
+        } catch (sendError) {
+          logger.error('Failed to send error response', sendError as Error, {
+            sessionId,
+            operation: 'voice_websocket_error_response'
+          });
+        }
+      }
+    });
+
+    // Handle WebSocket close
+    ws.on('close', async (code: number, reason: Buffer) => {
+      logger.info('Voice WebSocket connection closed', {
+        sessionId,
+        operation: 'voice_websocket_close'
+      }, {
+        code,
+        reason: reason.toString()
+      });
+
+      // Clean up session and adapter state
+      if (ws.voiceSession) {
+        ws.voiceSession.cleanup();
+        this.cleanupSession(sessionId);
+        this.voiceSessions.delete(sessionId);
+      }
+
+      // End conversation session
+      try {
+        await conversationService.endSession(sessionId);
+      } catch (endError) {
+        logger.error('Failed to end voice session', endError as Error, {
+          sessionId,
+          operation: 'voice_session_end'
+        });
+      }
+    });
+
+    // Handle WebSocket errors
+    ws.on('error', async (error: Error) => {
+      logger.error('Voice WebSocket error', error, {
+        sessionId,
+        operation: 'voice_websocket_error'
+      });
+
+      // Clean up on error
+      if (ws.voiceSession) {
+        ws.voiceSession.cleanup();
+        this.voiceSessions.delete(sessionId);
+      }
+    });
+  }
+
+  /**
+   * Process individual voice messages based on their type.
+   * 
+   * This method routes different voice message types to appropriate handlers
+   * and integrates with the BaseAdapter pattern for conversation processing.
+   * 
+   * @param session - Voice session instance
+   * @param message - Twilio voice message to process
+   * @param ws - WebSocket connection
+   * @param agent - Agent instance to process with
+   */
+  private async processVoiceMessage(
+    session: VoiceSession, 
+    message: TwilioVoiceMessage,
+    ws: WebSocketWithSession,
+    agent: Agent
+  ): Promise<void> {
+    
+    switch (message.type) {
+      case 'setup':
+        session.setSetupData(message);
+        const setupResponse = await session.handleSetup(message);
+        if (setupResponse) {
+          ws.send(JSON.stringify(setupResponse));
+        }
+        break;
+        
+      case 'prompt':
+        try {
+          const messageWithSetup = {
+            ...message,
+            sessionSetup: session.getSetupData()
+          };
+          
+          // Process using the BaseAdapter pattern
+          await this.processRequest(messageWithSetup, ws, agent);
+        } catch (error) {
+          logger.warn('Voice adapter processing failed, using fallback', {
+            sessionId: session.getSessionId(),
+            operation: 'voice_adapter_fallback'
+          }, { error: (error as Error).message });
+          
+          const transcript = message.voicePrompt || message.data?.prompt || '';
+          const fallbackResponse = await session.handlePrompt(transcript);
+          if (fallbackResponse) {
+            ws.send(JSON.stringify(fallbackResponse));
+          }
+        }
+        break;
+        
+      case 'media':
+        await this.handleMediaMessage(session.getSessionId(), message, ws, agent);
+        break;
+        
+      case 'dtmf':
+        const dtmf = message.digits?.digit || message.data?.dtmf || '';
+        const dtmfResponse = await session.handleDtmf(dtmf);
+        if (dtmfResponse) {
+          ws.send(JSON.stringify(dtmfResponse));
+        }
+        break;
+        
+      case 'interrupt':
+        const interruptResponse = await session.handleInterrupt();
+        if (interruptResponse) {
+          ws.send(JSON.stringify(interruptResponse));
+        }
+        break;
+        
+      default:
+        logger.warn('Unknown voice message type', {
+          sessionId: session.getSessionId(),
+          operation: 'voice_message_processing'
+        }, {
+          messageType: message.type
+        });
+    }
   }
 
   protected getChannelName(): string {
