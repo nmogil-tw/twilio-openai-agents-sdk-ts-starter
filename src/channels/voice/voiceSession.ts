@@ -1,5 +1,7 @@
 import { logger } from '../../utils/logger';
 import { TwilioVoiceMessage, TwilioVoiceResponse } from './types';
+import { conversationService } from '../../services/conversationService';
+import { SubjectResolver, SubjectResolverRegistry } from '../../identity/subject-resolver';
 
 
 /**
@@ -11,9 +13,11 @@ import { TwilioVoiceMessage, TwilioVoiceResponse } from './types';
 export class VoiceSession {
   private sessionId: string;
   private setupData?: TwilioVoiceMessage;
+  private subjectResolver: SubjectResolver;
 
-  constructor(sessionId?: string) {
+  constructor(sessionId?: string, subjectResolver?: SubjectResolver) {
     this.sessionId = sessionId || `voice-${Date.now()}`;
+    this.subjectResolver = subjectResolver || SubjectResolverRegistry.getInstance().getDefault();
     
     logger.info('Voice session created', {
       sessionId: this.sessionId,
@@ -57,8 +61,56 @@ export class VoiceSession {
       this.setSetupData(setupData);
     }
 
-    // Return a simple initial greeting - detailed conversation logic is now handled by VoiceAdapter
-    const greeting = 'Hello! I\'m your AI customer service assistant. How can I help you today?';
+    // Generate context-aware greeting by resolving subject and loading conversation context
+    let greeting = 'Hello! I\'m your AI customer service assistant. How can I help you today?';
+
+    try {
+      if (setupData) {
+        // Extract metadata similar to how VoiceAdapter does it
+        const metadata = {
+          phone: setupData.from,
+          from: setupData.from,
+          callSid: setupData.callSid,
+          channel: 'voice',
+          adapterName: 'voice',
+          messageId: setupData.callSid,
+          timestamp: new Date().toISOString()
+        };
+
+        // Resolve subject ID and get existing conversation context
+        const subjectId = await this.subjectResolver.resolve(metadata);
+        const context = await conversationService.getContext(subjectId);
+
+        // Generate personalized greeting based on context
+        if (context.conversationHistory.length > 0) {
+          // Returning customer - use more personalized greeting
+          const customerName = context.customerName ? ` ${context.customerName}` : '';
+          greeting = `Hello${customerName}! Welcome back. I can see we've spoken before. How can I help you today?`;
+        } else if (context.customerName) {
+          // New conversation but we have customer info
+          greeting = `Hello ${context.customerName}! I\'m your AI customer service assistant. How can I help you today?`;
+        }
+        // Otherwise use default greeting (already set above)
+
+        logger.info('Context-aware greeting generated', {
+          sessionId: this.sessionId,
+          subjectId,
+          operation: 'voice_context_greeting'
+        }, {
+          hasHistory: context.conversationHistory.length > 0,
+          hasCustomerName: !!context.customerName,
+          greetingType: context.conversationHistory.length > 0 ? 'returning' : 'new'
+        });
+      }
+    } catch (error) {
+      logger.warn('Failed to generate context-aware greeting, using default', {
+        sessionId: this.sessionId,
+        operation: 'voice_setup_fallback'
+      }, { 
+        error: (error as Error).message 
+      });
+      // greeting remains the default value
+    }
 
     console.log(`\n🤖 [AI RESPONSE] Initial Greeting`);
     console.log(`   Response: "${greeting}"`);

@@ -381,7 +381,9 @@ describe('VoiceAdapter', () => {
         from: '+1234567890',
         callSid: 'CAtest123',
         channel: 'voice',
-        adapterName: 'voice'
+        adapterName: 'voice',
+        messageId: 'CAtest123',
+        timestamp: expect.any(String)
       });
     });
 
@@ -397,7 +399,9 @@ describe('VoiceAdapter', () => {
         from: undefined,
         callSid: undefined,
         channel: 'voice',
-        adapterName: 'voice'
+        adapterName: 'voice',
+        messageId: undefined,
+        timestamp: expect.any(String)
       });
     });
   });

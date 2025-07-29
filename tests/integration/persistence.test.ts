@@ -1,5 +1,5 @@
 import { ConversationService } from '../../src/services/conversationService';
-import { StatePersistence } from '../../src/services/persistence';
+import { StatePersistence } from '../../src/services/persistence/index';
 import { customerSupportAgent } from '../../src/agents/customer-support';
 import { CustomerContext } from '../../src/context/types';
 import * as fs from 'fs/promises';

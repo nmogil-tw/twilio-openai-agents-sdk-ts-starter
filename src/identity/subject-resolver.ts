@@ -1,6 +1,7 @@
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { logger } from '../utils/logger';
+import { SegmentSubjectResolver } from './segment-resolver';
 
 export type SubjectId = string;
 
@@ -122,6 +123,12 @@ export class SubjectResolverRegistry {
   private constructor() {
     // Load default resolver
     this.register('phone', new DefaultPhoneSubjectResolver());
+    
+    // Add Segment resolver if configured
+    if (process.env.SEGMENT_WRITE_KEY) {
+      this.register('segment', new SegmentSubjectResolver(process.env.SEGMENT_WRITE_KEY));
+      logger.info('Segment resolver registered with write key');
+    }
   }
 
   static getInstance(): SubjectResolverRegistry {

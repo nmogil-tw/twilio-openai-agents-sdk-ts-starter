@@ -89,7 +89,28 @@ export class FileStateStore implements RunStateStore, CustomerContextStore {
       
       try {
         const fileContent = await fs.readFile(filePath, 'utf-8');
-        const stateData = JSON.parse(fileContent);
+        
+        // Handle empty or corrupted JSON files
+        if (!fileContent.trim()) {
+          logger.warn('Empty state file found, removing', {
+            subjectId,
+            operation: 'state_load'
+          });
+          await this.deleteState(subjectId);
+          return null;
+        }
+        
+        let stateData;
+        try {
+          stateData = JSON.parse(fileContent);
+        } catch (parseError) {
+          logger.error('Corrupted JSON state file, removing and creating new', parseError as Error, {
+            subjectId,
+            operation: 'state_load'
+          });
+          await this.deleteState(subjectId);
+          return null;
+        }
         
         // Check if state is too old
         if (Date.now() - stateData.timestamp > this.config.maxAge) {
@@ -284,7 +305,28 @@ export class FileStateStore implements RunStateStore, CustomerContextStore {
       
       try {
         const fileContent = await fs.readFile(filePath, 'utf-8');
-        const contextData = JSON.parse(fileContent);
+        
+        // Handle empty or corrupted JSON files
+        if (!fileContent.trim()) {
+          logger.warn('Empty context file found, removing', {
+            subjectId,
+            operation: 'context_load'
+          });
+          await this.deleteContext(subjectId);
+          return null;
+        }
+        
+        let contextData;
+        try {
+          contextData = JSON.parse(fileContent);
+        } catch (parseError) {
+          logger.error('Corrupted JSON context file, removing and creating new', parseError as Error, {
+            subjectId,
+            operation: 'context_load'
+          });
+          await this.deleteContext(subjectId);
+          return null;
+        }
         
         // Check if context is too old
         const maxAge = this.config.contextMaxAge!;

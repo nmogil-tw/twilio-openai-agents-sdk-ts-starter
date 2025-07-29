@@ -26,7 +26,8 @@ import dotenv from 'dotenv';
 import { logger } from './utils/logger';
 import { conversationService } from './services/conversationService';
 import { SmsAdapter } from './channels/sms/adapter';
-import { DefaultPhoneSubjectResolver } from './identity/subject-resolver';
+import { DefaultPhoneSubjectResolver, SubjectResolver } from './identity/subject-resolver';
+import { SegmentSubjectResolver } from './identity/segment-resolver';
 import { agentRegistry } from './registry/agent-registry';
 
 // Load environment variables
@@ -42,7 +43,46 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Subject resolver for customer identification
-const subjectResolver = new DefaultPhoneSubjectResolver();
+function createSubjectResolver(): SubjectResolver {
+  const resolverType = process.env.SUBJECT_RESOLVER?.toLowerCase();
+  
+  if (resolverType === 'segment') {
+    const writeKey = process.env.SEGMENT_WRITE_KEY;
+    const profileApiToken = process.env.SEGMENT_PROFILE_API_TOKEN;
+    const spaceId = process.env.SEGMENT_SPACE_ID;
+    const region = (process.env.SEGMENT_REGION as 'us' | 'eu') || 'us';
+    
+    if (!writeKey) {
+      logger.warn('SEGMENT_WRITE_KEY not configured, falling back to phone resolver');
+      return new DefaultPhoneSubjectResolver();
+    }
+    
+    if (!profileApiToken || !spaceId) {
+      logger.warn('SEGMENT_PROFILE_API_TOKEN or SEGMENT_SPACE_ID not configured, using identify-only mode', {
+        operation: 'segment_resolver_config'
+      }, {
+        hasToken: !!profileApiToken,
+        hasSpaceId: !!spaceId
+      });
+    }
+    
+    logger.info('Using Segment subject resolver', {
+      operation: 'segment_resolver_init'
+    }, {
+      hasProfileApi: !!(profileApiToken && spaceId),
+      region,
+      profileApiConfigured: !!profileApiToken,
+      spaceIdConfigured: !!spaceId
+    });
+    
+    return new SegmentSubjectResolver(writeKey, profileApiToken, spaceId, region);
+  }
+  
+  logger.info('Using default phone subject resolver');
+  return new DefaultPhoneSubjectResolver();
+}
+
+const subjectResolver = createSubjectResolver();
 
 // Channel adapters
 const smsAdapter = new SmsAdapter(subjectResolver);
@@ -244,7 +284,10 @@ app.get('/status', async (req, res) => {
       configuration: {
         twilioConfigured: !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_API_KEY_SID),
         openaiConfigured: !!process.env.OPENAI_API_KEY,
-        phoneNumber: process.env.TWILIO_PHONE_NUMBER || 'not configured'
+        phoneNumber: process.env.TWILIO_PHONE_NUMBER || 'not configured',
+        subjectResolver: process.env.SUBJECT_RESOLVER || 'phone',
+        segmentConfigured: !!(process.env.SEGMENT_WRITE_KEY && process.env.SUBJECT_RESOLVER === 'segment'),
+        segmentProfileApiConfigured: !!(process.env.SEGMENT_PROFILE_API_TOKEN && process.env.SEGMENT_SPACE_ID && process.env.SUBJECT_RESOLVER === 'segment')
       },
       timestamp: new Date().toISOString()
     });
@@ -338,6 +381,11 @@ process.on('SIGINT', async () => {
   
   // Cleanup any active conversations
   await conversationService.cleanup(0); // Clean up all sessions
+  
+  // Close the subject resolver if it has a close method (e.g., SegmentSubjectResolver)
+  if (subjectResolver && typeof (subjectResolver as any).close === 'function') {
+    await (subjectResolver as any).close();
+  }
   
   logger.info('Server shutdown complete');
   process.exit(0);

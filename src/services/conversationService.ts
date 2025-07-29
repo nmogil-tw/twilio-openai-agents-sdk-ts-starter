@@ -5,7 +5,7 @@ import {
   type AgentInputItem,
 } from '@openai/agents';
 import { RunStateStore, CustomerContextStore } from './persistence/types';
-import { statePersistence } from './persistence';
+import { statePersistence } from './persistence/index';
 import { logger } from '../utils/logger';
 import { CustomerContext } from '../context/types';
 import { SubjectId } from '../types/common';
@@ -188,6 +188,9 @@ export class ConversationService {
         } else {
           input = [{ role: 'user', content: userMessage }];
         }
+        
+        // Inject customer profile context if available
+        input = this.enrichInputWithCustomerProfile(input, context);
         
         if (showProgress) {
           console.log(`🔄 Processing with ${resolvedAgent.name}: "${userMessage.substring(0, 50)}${userMessage.length > 50 ? '...' : ''}"`);
@@ -433,6 +436,96 @@ export class ConversationService {
   }
 
   /**
+   * Enrich agent input with customer profile context
+   */
+  private enrichInputWithCustomerProfile(input: AgentInputItem[], context: CustomerContext): AgentInputItem[] {
+    // Check if customer profile data is available in context metadata
+    const customerProfile = context.metadata?.customerProfile;
+    
+    if (!customerProfile) {
+      return input;
+    }
+    
+    // Check if we already have a customer context system message
+    const hasCustomerContextMessage = input.some(item => 
+      'role' in item &&
+      item.role === 'system' && 
+      'content' in item &&
+      typeof item.content === 'string' && 
+      item.content.includes('Customer Profile')
+    );
+    
+    if (hasCustomerContextMessage) {
+      return input; // Already enriched
+    }
+    
+    // Build customer context message
+    let contextMessage = 'Customer Profile:\n';
+    
+    if (customerProfile.isExistingCustomer) {
+      contextMessage += '- This is an existing customer\n';
+    } else {
+      contextMessage += '- This is a new customer\n';
+    }
+    
+    if (customerProfile.firstName) {
+      contextMessage += `- Name: ${customerProfile.firstName}`;
+      if (customerProfile.lastName) {
+        contextMessage += ` ${customerProfile.lastName}`;
+      }
+      contextMessage += '\n';
+    }
+    
+    if (customerProfile.email) {
+      contextMessage += `- Email: ${customerProfile.email}\n`;
+    }
+    
+    if (customerProfile.phone) {
+      contextMessage += `- Phone: ${customerProfile.phone}\n`;
+    }
+    
+    if (customerProfile.customerTier) {
+      contextMessage += `- Customer Tier: ${customerProfile.customerTier}\n`;
+    }
+    
+    if (customerProfile.purchaseHistory) {
+      contextMessage += `- Purchase History: ${JSON.stringify(customerProfile.purchaseHistory)}\n`;
+    }
+    
+    if (customerProfile.supportTickets) {
+      contextMessage += `- Previous Support Tickets: ${JSON.stringify(customerProfile.supportTickets)}\n`;
+    }
+    
+    if (customerProfile.preferences) {
+      contextMessage += `- Customer Preferences: ${JSON.stringify(customerProfile.preferences)}\n`;
+    }
+    
+    contextMessage += '\nUse this information to provide personalized customer service.';
+    
+    // Insert system message at the beginning (after any existing system messages)
+    const systemMessageIndex = input.findIndex(item => !('role' in item) || item.role !== 'system');
+    const insertIndex = systemMessageIndex === -1 ? input.length : systemMessageIndex;
+    
+    const enrichedInput = [...input];
+    enrichedInput.splice(insertIndex, 0, {
+      role: 'system',
+      content: contextMessage
+    });
+    
+    logger.debug('Enriched agent input with customer profile', {
+      operation: 'input_customer_enrichment'
+    }, {
+      isExistingCustomer: customerProfile.isExistingCustomer,
+      hasName: !!customerProfile.firstName,
+      hasEmail: !!customerProfile.email,
+      hasPurchaseHistory: !!customerProfile.purchaseHistory,
+      inputLength: enrichedInput.length
+    });
+    
+    return enrichedInput;
+  }
+
+  /**
    * Get or create CustomerContext for a given subject ID.
    * 
    * This method first checks in-memory cache, then tries to load from persistent storage.
@@ -561,7 +654,33 @@ export class ConversationService {
    */
   async endSession(subjectId: SubjectId): Promise<void> {
     try {
-      const context = this.contexts.get(subjectId);
+      let context = this.contexts.get(subjectId);
+      
+      // If context not found in memory, try to load from persistent storage
+      if (!context) {
+        logger.debug('Context not found in memory, attempting to load from storage', {
+          subjectId,
+          operation: 'session_end_context_recovery'
+        });
+        
+        try {
+          const loadedContext = await this.contextStore.loadContext(subjectId);
+          if (loadedContext) {
+            context = loadedContext;
+            logger.info('Context recovered from persistent storage for session end', {
+              subjectId,
+              operation: 'session_end_context_recovery'
+            });
+          }
+        } catch (loadError) {
+          logger.warn('Failed to load context from storage during session end', {
+            subjectId,
+            operation: 'session_end_context_recovery'
+          }, {
+            error: (loadError as Error).message
+          });
+        }
+      }
       
       // Calculate session metadata for logging
       const sessionStart = context?.sessionStartTime || new Date();

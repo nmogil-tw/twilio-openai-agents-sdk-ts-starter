@@ -1,5 +1,0 @@
-{
-  "subjectId": "test-restart-conversation",
-  "runState": "{\"version\": 1, \"messages\": [{\"role\": \"user\", \"content\": \"test\"}], \"pendingTool\": \"processRefund\"}",
-  "timestamp": 1753384943326
-}

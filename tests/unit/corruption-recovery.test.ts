@@ -1,4 +1,4 @@
-import { StatePersistence } from '../../src/services/persistence';
+import { StatePersistence } from '../../src/services/persistence/index';
 import { ConversationManager } from '../../src/services/conversationManager';
 import * as fs from 'fs/promises';
 import * as path from 'path';

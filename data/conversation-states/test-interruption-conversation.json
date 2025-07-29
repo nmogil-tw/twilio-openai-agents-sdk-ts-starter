@@ -1,5 +1,0 @@
-{
-  "subjectId": "test-interruption-conversation",
-  "runState": "{\"version\": 1, \"interrupted\": true, \"pendingTools\": [{\"name\": \"processRefund\", \"args\": {\"orderId\": \"ORD_123\"}}]}",
-  "timestamp": 1753384943322
-}

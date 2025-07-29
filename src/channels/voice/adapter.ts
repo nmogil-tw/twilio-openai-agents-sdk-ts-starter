@@ -10,6 +10,7 @@ import { conversationService } from '../../services/conversationService';
 
 interface WebSocketWithSession extends WebSocket {
   voiceSession?: VoiceSession;
+  subjectId?: string; // Track the resolved subject ID for conversation service
 }
 
 /**
@@ -75,7 +76,10 @@ export class VoiceAdapter extends BaseAdapter {
       from: setup?.from,
       callSid: setup?.callSid,
       channel: 'voice',
-      adapterName: 'voice'
+      adapterName: 'voice',
+      // Add Segment tracking metadata
+      messageId: setup?.callSid,
+      timestamp: new Date().toISOString()
     };
   }
 
@@ -264,8 +268,8 @@ export class VoiceAdapter extends BaseAdapter {
         sessionSetup: ws.voiceSession?.getSetupData()
       };
 
-      // Process using the BaseAdapter pattern
-      await this.processRequest(mediaMessage, ws, agent);
+      // Process using the BaseAdapter pattern with subject caching
+      await this.processRequestWithSubjectCaching(mediaMessage, ws, agent);
 
     } catch (error) {
       logger.error('Failed to process batched transcripts', error as Error, {
@@ -385,8 +389,8 @@ export class VoiceAdapter extends BaseAdapter {
       userAgent: req.get('User-Agent')
     });
 
-    // Create and store voice session
-    const voiceSession = new VoiceSession(sessionId);
+    // Create and store voice session with subject resolver
+    const voiceSession = new VoiceSession(sessionId, this.subjectResolver);
     ws.voiceSession = voiceSession;
     this.voiceSessions.set(sessionId, voiceSession);
 
@@ -446,11 +450,24 @@ export class VoiceAdapter extends BaseAdapter {
         this.voiceSessions.delete(sessionId);
       }
 
-      // End conversation session
-      try {
-        await conversationService.endSession(sessionId);
-      } catch (endError) {
-        logger.error('Failed to end voice session', endError as Error, {
+      // End conversation session using the tracked subject ID
+      if (ws.subjectId) {
+        try {
+          await conversationService.endSession(ws.subjectId);
+          logger.info('Conversation session ended successfully', {
+            sessionId,
+            subjectId: ws.subjectId,
+            operation: 'voice_session_end'
+          });
+        } catch (endError) {
+          logger.error('Failed to end conversation session', endError as Error, {
+            sessionId,
+            subjectId: ws.subjectId,
+            operation: 'voice_session_end'
+          });
+        }
+      } else {
+        logger.warn('No subject ID tracked for session cleanup', {
           sessionId,
           operation: 'voice_session_end'
         });
@@ -506,8 +523,8 @@ export class VoiceAdapter extends BaseAdapter {
             sessionSetup: session.getSetupData()
           };
           
-          // Process using the BaseAdapter pattern
-          await this.processRequest(messageWithSetup, ws, agent);
+          // Cache subject ID after first resolution to avoid duplicates
+          await this.processRequestWithSubjectCaching(messageWithSetup, ws, agent);
         } catch (error) {
           logger.warn('Voice adapter processing failed, using fallback', {
             sessionId: session.getSessionId(),
@@ -548,6 +565,207 @@ export class VoiceAdapter extends BaseAdapter {
         }, {
           messageType: message.type
         });
+    }
+  }
+
+  /**
+   * Process request with subject ID caching to prevent duplicate resolutions
+   */
+  private async processRequestWithSubjectCaching(
+    req: any,
+    ws: WebSocketWithSession,
+    agent: Agent
+  ): Promise<void> {
+    // Check if we already have a cached subject ID for this WebSocket
+    if (!ws.subjectId) {
+      // First message - resolve subject ID and cache it
+      const metadata = this.getSubjectMetadata(req);
+      ws.subjectId = await this.subjectResolver.resolve(metadata);
+      
+      logger.debug('Subject ID resolved and cached for voice session', {
+        operation: 'voice_subject_caching',
+        sessionId: req.sessionSetup?.callSid
+      }, {
+        subjectId: ws.subjectId
+      });
+    } else {
+      logger.debug('Using cached subject ID for voice session', {
+        operation: 'voice_subject_cached',
+        sessionId: req.sessionSetup?.callSid
+      }, {
+        subjectId: ws.subjectId
+      });
+    }
+    
+    // Now process the request with the BaseAdapter but skip subject resolution
+    await this.processRequestWithKnownSubject(req, ws, agent, ws.subjectId);
+  }
+
+  /**
+   * Process request when subject ID is already known (to avoid duplicate resolution)
+   */
+  private async processRequestWithKnownSubject(
+    req: any,
+    res: WebSocketWithSession,
+    agent: Agent,
+    knownSubjectId: string
+  ): Promise<void> {
+    const startTime = Date.now();
+
+    try {
+      // Extract user message and metadata (but skip subject resolution)
+      const [userMessage, metadata] = await Promise.all([
+        this.getUserMessage(req),
+        Promise.resolve(this.getSubjectMetadata(req))
+      ]);
+
+      if (!userMessage?.trim()) {
+        logger.warn('Empty user message received', {
+          operation: 'base_adapter_process',
+          adapterName: this.getChannelName()
+        });
+        await this.sendResponse(res, this.createTextStream(['I didn\'t receive any message. Could you please try again?']));
+        return;
+      }
+
+      // Use the known subject ID instead of resolving again
+      const subjectId = knownSubjectId;
+      
+      logger.info('Processing channel request', {
+        subjectId,
+        operation: 'base_adapter_process',
+        adapterName: this.getChannelName()
+      }, {
+        messageLength: userMessage.length,
+        hasMetadata: Object.keys(metadata).length > 0,
+        hasCustomerProfile: !!metadata.customerProfile
+      });
+
+      // Initialize context with channel metadata and customer profile if needed
+      const context = await conversationService.getContext(subjectId);
+      let contextUpdated = false;
+      
+      if (!context.customerPhone && metadata.phone) {
+        context.customerPhone = metadata.phone;
+        contextUpdated = true;
+      }
+      
+      // Add enriched customer profile data from Segment to context metadata
+      if (metadata.customerProfile) {
+        context.metadata = {
+          ...context.metadata,
+          customerProfile: metadata.customerProfile
+        };
+        
+        // Also update direct context fields if available
+        if (metadata.customerProfile.firstName && !context.customerName) {
+          context.customerName = `${metadata.customerProfile.firstName} ${metadata.customerProfile.lastName || ''}`.trim();
+          contextUpdated = true;
+        }
+        
+        if (metadata.customerProfile.email && !context.customerEmail) {
+          context.customerEmail = metadata.customerProfile.email;
+          contextUpdated = true;
+        }
+        
+        contextUpdated = true;
+        
+        logger.info('Enriched conversation context with customer profile', {
+          subjectId,
+          operation: 'context_enrichment',
+          adapterName: this.getChannelName()
+        }, {
+          isExistingCustomer: metadata.customerProfile.isExistingCustomer,
+          hasCustomerName: !!context.customerName,
+          hasEmail: !!context.customerEmail
+        });
+      }
+      
+      if (contextUpdated) {
+        await conversationService.saveContext(subjectId, context);
+      }
+
+      // Process with unified conversation service
+      const result = await conversationService.processConversationTurn(
+        agent,
+        subjectId,
+        userMessage,
+        { 
+          showProgress: false, 
+          enableDebugLogs: false, 
+          stream: false
+        }
+      );
+
+      // Handle tool approval workflow if needed
+      if (result.awaitingApprovals) {
+        logger.info('Tool approvals required', {
+          subjectId,
+          operation: 'base_adapter_approval',
+          adapterName: this.getChannelName()
+        });
+        
+        const approvalMessage = 'Some actions require approval. This feature is in development. Please restate your request to continue.';
+        await this.sendResponse(res, this.createTextStream([approvalMessage]));
+        return;
+      }
+
+      // Check if user is saying goodbye
+      const isGoodbye = this.isGoodbyeMessage(userMessage);
+      
+      // Get the final response
+      const responseText = result.finalOutput || result.response || 'I apologize, but I\'m having trouble processing your request right now.';
+
+      // Stream the response back to the channel
+      await this.sendResponse(res, this.createTextStream([responseText]));
+      
+      // End session if user said goodbye
+      if (isGoodbye) {
+        try {
+          await conversationService.endSession(subjectId);
+          logger.info('Session ended due to goodbye message', {
+            subjectId,
+            operation: 'session_end_goodbye',
+            adapterName: this.getChannelName()
+          });
+        } catch (endError) {
+          logger.error('Failed to end session after goodbye', endError as Error, {
+            subjectId,
+            operation: 'session_end_goodbye',
+            adapterName: this.getChannelName()
+          });
+        }
+      }
+
+      logger.info('Channel request processed successfully', {
+        subjectId,
+        operation: 'base_adapter_completion',
+        adapterName: this.getChannelName()
+      }, {
+        responseLength: responseText.length,
+        processingTimeMs: Date.now() - startTime,
+        newItemsCount: result.newItems.length,
+        currentAgent: result.currentAgent?.name
+      });
+
+    } catch (error) {
+      logger.error('Channel request processing failed', error as Error, {
+        subjectId: knownSubjectId,
+        operation: 'base_adapter_process',
+        adapterName: this.getChannelName()
+      });
+
+      const errorMessage = 'I apologize, but I\'m experiencing technical difficulties. Please try again or contact support.';
+      
+      try {
+        await this.sendResponse(res, this.createTextStream([errorMessage]));
+      } catch (responseError) {
+        logger.error('Failed to send error response', responseError as Error, {
+          subjectId: knownSubjectId,
+          operation: 'base_adapter_error_response',
+          adapterName: this.getChannelName()
+        });
+      }
     }
   }
 

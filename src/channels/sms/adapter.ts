@@ -91,7 +91,11 @@ export class SmsAdapter extends BaseAdapter {
       messageSid: req.body.MessageSid,
       to: req.body.To,
       adapterName: 'sms',
-      accountSid: req.body.AccountSid
+      accountSid: req.body.AccountSid,
+      // Add Segment tracking metadata
+      channel: 'sms',
+      messageId: req.body.MessageSid,
+      timestamp: new Date().toISOString()
     };
 
     logger.debug('Extracting SMS metadata', {

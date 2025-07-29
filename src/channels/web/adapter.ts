@@ -76,6 +76,11 @@ export class WebChatAdapter extends BaseAdapter {
       userEmail: req.user?.email,
       userName: req.user?.name,
       adapterName: 'web',
+      // Add Segment tracking metadata
+      channel: 'web',
+      email: req.user?.email,
+      name: req.user?.name,
+      timestamp: new Date().toISOString(),
       ...req.body.metadata
     };
 

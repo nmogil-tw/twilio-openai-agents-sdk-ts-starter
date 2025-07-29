@@ -65,13 +65,51 @@ export abstract class BaseAdapter implements ChannelAdapter {
         adapterName: this.getChannelName()
       }, {
         messageLength: userMessage.length,
-        hasMetadata: Object.keys(metadata).length > 0
+        hasMetadata: Object.keys(metadata).length > 0,
+        hasCustomerProfile: !!metadata.customerProfile
       });
 
-      // Initialize context with channel metadata if needed
+      // Initialize context with channel metadata and customer profile if needed
       const context = await conversationService.getContext(subjectId);
+      let contextUpdated = false;
+      
       if (!context.customerPhone && metadata.phone) {
         context.customerPhone = metadata.phone;
+        contextUpdated = true;
+      }
+      
+      // Add enriched customer profile data from Segment to context metadata
+      if (metadata.customerProfile) {
+        context.metadata = {
+          ...context.metadata,
+          customerProfile: metadata.customerProfile
+        };
+        
+        // Also update direct context fields if available
+        if (metadata.customerProfile.firstName && !context.customerName) {
+          context.customerName = `${metadata.customerProfile.firstName} ${metadata.customerProfile.lastName || ''}`.trim();
+          contextUpdated = true;
+        }
+        
+        if (metadata.customerProfile.email && !context.customerEmail) {
+          context.customerEmail = metadata.customerProfile.email;
+          contextUpdated = true;
+        }
+        
+        contextUpdated = true;
+        
+        logger.info('Enriched conversation context with customer profile', {
+          subjectId,
+          operation: 'context_enrichment',
+          adapterName: this.getChannelName()
+        }, {
+          isExistingCustomer: metadata.customerProfile.isExistingCustomer,
+          hasCustomerName: !!context.customerName,
+          hasEmail: !!context.customerEmail
+        });
+      }
+      
+      if (contextUpdated) {
         await conversationService.saveContext(subjectId, context);
       }
 
