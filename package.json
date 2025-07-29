@@ -1,10 +1,5 @@
 {
   "dependencies": {
-    "@docusaurus/core": "^3.8.1",
-    "@docusaurus/module-type-aliases": "^3.8.1",
-    "@docusaurus/preset-classic": "^3.8.1",
-    "@docusaurus/tsconfig": "^3.8.1",
-    "@docusaurus/types": "^3.8.1",
     "@openai/agents": "^0.0.10",
     "@segment/analytics-node": "^2.3.0",
     "@types/node": "^24.0.12",
@@ -15,7 +10,6 @@
     "express": "^5.1.0",
     "express-ws": "^5.0.2",
     "fast-glob": "^3.3.3",
-    "prism-react-renderer": "^2.4.1",
     "tsx": "^4.20.3",
     "twilio": "^4.21.0",
     "typescript": "^5.8.3",
@@ -39,10 +33,7 @@
     "lint": "echo \"Linting not configured yet\"",
     "typecheck": "tsc --noEmit",
     "cleanup": "tsx scripts/cleanup-sessions.ts",
-    "server:test": "tsx src/server.ts --test",
-    "docs:serve": "npx docusaurus start website",
-    "docs:build": "npx docusaurus build website",
-    "docs:deploy": "npx docusaurus deploy website"
+    "server:test": "tsx src/server.ts --test"
   },
   "keywords": [],
   "author": "",
