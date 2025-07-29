@@ -458,13 +458,16 @@ export class SegmentSubjectResolver implements SubjectResolver {
       // Add specific traits that might be useful for AI context
       firstName: profile.traits.firstName || profile.traits.first_name,
       lastName: profile.traits.lastName || profile.traits.last_name,
+      name: profile.traits.name, // Handle unified name field
       email: profile.traits.email,
       phone: profile.traits.phone,
       // Business relevant traits
       purchaseHistory: profile.traits.purchaseHistory,
       supportTickets: profile.traits.supportTickets,
       customerTier: profile.traits.customerTier,
-      preferences: profile.traits.preferences
+      preferences: profile.traits.preferences,
+      // Add all traits from Segment for comprehensive context
+      allTraits: profile.traits
     };
 
     logger.debug('Enriched metadata with customer profile', {

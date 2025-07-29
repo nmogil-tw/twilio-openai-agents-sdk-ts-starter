@@ -44,36 +44,55 @@ export class VoiceSession {
       customerInfo.push(`Email: ${context.customerEmail}`);
     }
     
-    // Add conversation context
-    const historyLength = context.conversationHistory?.length || 0;
-    if (historyLength > 0) {
-      conversationInfo.push(`This customer has contacted us ${historyLength} time${historyLength > 1 ? 's' : ''} before.`);
-      
-      // Add info about resolved issues
-      if (context.resolvedIssues?.length > 0) {
-        conversationInfo.push(`Previously resolved issues: ${context.resolvedIssues.join(', ')}`);
-      }
-      
-      // Add escalation level if elevated
-      if (context.escalationLevel > 0) {
-        conversationInfo.push(`Previous escalation level: ${context.escalationLevel}`);
-      }
-    } else {
-      conversationInfo.push('This is a new customer calling for the first time.');
-    }
+    // Determine customer status - prioritize Segment profile data over conversation history
+    let isExistingCustomer = false;
+    let customerStatusInfo = '';
     
-    // Add customer profile data if available from metadata
+    // First check Segment profile data
     if (context.metadata?.customerProfile) {
       const profile = context.metadata.customerProfile;
       if (profile.isExistingCustomer) {
-        conversationInfo.push('This is a known customer in our system.');
+        isExistingCustomer = true;
+        customerStatusInfo = 'This is a known customer in our system with an existing profile.';
+      }
+    }
+    
+    // If no profile data available, fall back to conversation history
+    if (!isExistingCustomer && !context.metadata?.customerProfile) {
+      const historyLength = context.conversationHistory?.length || 0;
+      if (historyLength > 0) {
+        isExistingCustomer = true;
+        customerStatusInfo = `This customer has contacted us ${historyLength} time${historyLength > 1 ? 's' : ''} before.`;
+      } else {
+        customerStatusInfo = 'This appears to be a new customer calling for the first time.';
+      }
+    }
+    
+    // Add the determined customer status
+    conversationInfo.push(customerStatusInfo);
+    
+    // Add additional conversation context for existing customers
+    if (isExistingCustomer) {
+      const historyLength = context.conversationHistory?.length || 0;
+      if (historyLength > 0) {
+        conversationInfo.push(`Previous conversation history: ${historyLength} interaction${historyLength > 1 ? 's' : ''} on record.`);
+        
+        // Add info about resolved issues
+        if (context.resolvedIssues?.length > 0) {
+          conversationInfo.push(`Previously resolved issues: ${context.resolvedIssues.join(', ')}`);
+        }
+        
+        // Add escalation level if elevated
+        if (context.escalationLevel > 0) {
+          conversationInfo.push(`Previous escalation level: ${context.escalationLevel}`);
+        }
       }
     }
     
     // Add variation guidance to prevent repetitive greetings
-    const variationGuidance = context.conversationHistory?.length > 0 
-      ? 'IMPORTANT: This customer has called before. Vary your greeting style and wording to avoid repetition. Use different phrases than "Thank you for calling us again" or similar repetitive language.'
-      : 'This is a first-time caller, so use a welcoming new customer greeting.';
+    const variationGuidance = isExistingCustomer
+      ? 'IMPORTANT: This is an existing customer in our system. Acknowledge their status appropriately and vary your greeting style to avoid repetition. Use different phrases and avoid generic "new customer" language.'
+      : 'This appears to be a new customer, so use a welcoming first-time caller greeting.';
 
     const prompt = `GREETING GENERATION TASK:
 
@@ -91,13 +110,13 @@ ${variationGuidance}
 GUIDELINES:
 - Keep the greeting concise (1-2 sentences max)
 - Be professional but warm and welcoming
-- If this is a returning customer, acknowledge that politely but vary your phrasing
+- If this is an existing customer, acknowledge their known status appropriately without calling them "new"
 - If you know the customer's name, use it naturally
 - Don't mention specific previous issues unless very relevant
 - End by asking how you can help them today
 - This is a voice call, so speak naturally
 - VARY your greeting style - use different openings like "Hi [Name]!", "Good morning/afternoon [Name]", "Hello [Name], nice to hear from you", etc.
-- Avoid repeating the same phrases across different calls
+- NEVER refer to existing customers as "new customers" - this is incorrect and confusing
 
 Generate ONLY the greeting text. Do not include any explanations or additional commentary.`;
 

@@ -11,6 +11,7 @@ import { conversationService } from '../../services/conversationService';
 interface WebSocketWithSession extends WebSocket {
   voiceSession?: VoiceSession;
   subjectId?: string; // Track the resolved subject ID for conversation service
+  customerProfile?: any; // Cache customer profile data from initial subject resolution
 }
 
 /**
@@ -582,6 +583,18 @@ export class VoiceAdapter extends BaseAdapter {
       const metadata = this.getSubjectMetadata(req);
       ws.subjectId = await this.subjectResolver.resolve(metadata);
       
+      // Cache the customer profile data if it was enriched during subject resolution
+      if ((metadata as any).customerProfile) {
+        ws.customerProfile = (metadata as any).customerProfile;
+        logger.debug('Customer profile cached for voice session', {
+          operation: 'voice_customer_profile_cache',
+          sessionId: req.sessionSetup?.callSid
+        }, {
+          subjectId: ws.subjectId,
+          hasProfile: true
+        });
+      }
+      
       logger.debug('Subject ID resolved and cached for voice session', {
         operation: 'voice_subject_caching',
         sessionId: req.sessionSetup?.callSid
@@ -618,6 +631,18 @@ export class VoiceAdapter extends BaseAdapter {
         this.getUserMessage(req),
         Promise.resolve(this.getSubjectMetadata(req))
       ]);
+      
+      // If we have cached customer profile data, add it to metadata
+      if (res.customerProfile) {
+        (metadata as any).customerProfile = res.customerProfile;
+        logger.debug('Added cached customer profile to metadata', {
+          operation: 'voice_metadata_enrichment',
+          sessionId: req.sessionSetup?.callSid
+        }, {
+          subjectId: knownSubjectId,
+          hasProfile: true
+        });
+      }
 
       if (!userMessage?.trim()) {
         logger.warn('Empty user message received', {

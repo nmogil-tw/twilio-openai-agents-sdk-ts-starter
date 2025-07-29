@@ -468,12 +468,15 @@ export class ConversationService {
       contextMessage += '- This is a new customer\n';
     }
     
+    // Handle name - prioritize firstName/lastName, fall back to unified name field
     if (customerProfile.firstName) {
       contextMessage += `- Name: ${customerProfile.firstName}`;
       if (customerProfile.lastName) {
         contextMessage += ` ${customerProfile.lastName}`;
       }
       contextMessage += '\n';
+    } else if (customerProfile.name) {
+      contextMessage += `- Name: ${customerProfile.name}\n`;
     }
     
     if (customerProfile.email) {
@@ -500,7 +503,22 @@ export class ConversationService {
       contextMessage += `- Customer Preferences: ${JSON.stringify(customerProfile.preferences)}\n`;
     }
     
-    contextMessage += '\nUse this information to provide personalized customer service.';
+    // Add comprehensive trait information if available
+    if (customerProfile.allTraits) {
+      const relevantTraits = Object.entries(customerProfile.allTraits)
+        .filter(([key, value]) => 
+          value && 
+          !['firstName', 'lastName', 'first_name', 'last_name', 'email', 'phone', 'name'].includes(key)
+        )
+        .map(([key, value]) => `${key}: ${value}`)
+        .join(', ');
+      
+      if (relevantTraits) {
+        contextMessage += `- Additional Customer Data: ${relevantTraits}\n`;
+      }
+    }
+    
+    contextMessage += '\nIMPORTANT: This customer is already identified and their profile information is provided above. You do NOT need to use lookup tools to find their information - it is already available in this context. Use this information to provide personalized customer service.';
     
     // Insert system message at the beginning (after any existing system messages)
     const systemMessageIndex = input.findIndex(item => !('role' in item) || item.role !== 'system');
