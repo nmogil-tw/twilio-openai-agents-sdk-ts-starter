@@ -14,6 +14,7 @@ A complete omnichannel AI agent platform built with the OpenAI Agents SDK and Tw
 - **📈 Context Management**: Subject-based conversation persistence
 - **🔧 Flexible Tool System**: Extensible tools for customer lookup, orders, escalation, and SMS
 - **💾 Pluggable Persistence**: File, Redis, or PostgreSQL storage for conversation state
+- **📊 Segment Analytics Integration**: Real-time customer tracking and profile enrichment
 
 ## Architecture
 
@@ -37,7 +38,8 @@ Customer Support Agent (Single Comprehensive Agent)
 - **State Persistence**: RunState persistence for conversation continuity across restarts
 - **Tools**: Customer lookup, order management, escalation capabilities, SMS notifications
 - **Guardrails**: Input/output validation and PII protection
-- **Subject Resolution**: Phone-based customer identification across channels
+- **Subject Resolution**: Phone-based or Segment-based customer identification across channels
+- **Segment Integration**: Customer analytics, profile enrichment, and identity management
 
 ## Quick Start
 
@@ -282,7 +284,9 @@ The cross-channel continuity is powered by:
 
 The system uses a pluggable Subject Resolver architecture to map channel-specific identifiers to canonical Subject IDs.
 
-#### Default Phone Subject Resolver
+#### Available Subject Resolvers
+
+##### 1. Phone Subject Resolver (Default)
 
 The `DefaultPhoneSubjectResolver` normalizes phone numbers and persists mappings for consistency:
 
@@ -298,6 +302,37 @@ const phoneFormats = [
 ```
 
 The default resolver persists phone-to-subject mappings in `./data/subject-map.json` to ensure stability across restarts.
+
+**Configuration:**
+```bash
+SUBJECT_RESOLVER=phone  # Default
+```
+
+##### 2. Segment Subject Resolver
+
+The `SegmentSubjectResolver` integrates with Segment Analytics for comprehensive customer identity management:
+
+**Features:**
+- Automatic customer profile lookup via Segment Profile API
+- Real-time customer tracking and analytics
+- Cross-channel identity merging
+- AI context enrichment with customer data
+
+**Subject ID Formats:**
+- Authenticated users: `segment_user_{userId}`
+- Anonymous with identifiers: `segment_{hash}`
+- Purely anonymous: `segment_{random_hash}`
+
+**Configuration:**
+```bash
+SUBJECT_RESOLVER=segment
+SEGMENT_WRITE_KEY=your-segment-write-key
+SEGMENT_PROFILE_API_TOKEN=your-profile-api-token  # Optional
+SEGMENT_SPACE_ID=your-segment-space-id           # Optional
+SEGMENT_REGION=us                                # Optional
+```
+
+**See the [Segment Analytics Integration](#segment-analytics-integration) section for detailed documentation.**
 
 #### Custom Subject Resolvers
 
@@ -372,6 +407,203 @@ The test simulates:
 1. SMS conversation initiation
 2. Voice call with same phone number
 3. Verification that context is preserved across channels
+
+## Segment Analytics Integration
+
+The platform integrates with Segment for comprehensive customer identity resolution, tracking, and profile enrichment. This provides powerful customer insights and unified identity management across all communication channels.
+
+### Features
+
+- **🔍 Profile API Lookup**: Automatically retrieves existing customer profiles from Segment
+- **👤 Identity Resolution**: Maps channel-specific identifiers to canonical customer identities
+- **🔄 Cross-Channel Identity Merging**: Merges anonymous and authenticated user sessions
+- **📊 Real-time Customer Tracking**: Sends identify events to Segment for customer journey tracking
+- **💡 AI Context Enrichment**: Enriches AI agent context with customer profile data
+- **🎯 Customer Segmentation**: Leverages Segment's customer segmentation capabilities
+- **📈 Analytics & Insights**: Provides detailed customer interaction analytics
+
+### How It Works
+
+The `SegmentSubjectResolver` integrates with Segment's Identify API and Profile API to provide comprehensive customer identity management:
+
+1. **Identity Resolution**: When a customer contacts support, the system:
+   - Checks for existing Segment `anonymousId` in metadata
+   - Looks up customer profiles using phone, email, or userId
+   - Creates new anonymous sessions for unknown customers
+
+2. **Profile Enrichment**: For existing customers:
+   - Retrieves customer traits from Segment Profile API
+   - Enriches AI agent context with purchase history, support tickets, preferences
+   - Provides personalized support based on customer data
+
+3. **Real-time Tracking**: All interactions are sent to Segment:
+   - Customer identification events
+   - Channel usage tracking
+   - Conversation metadata
+
+4. **Identity Merging**: When anonymous users authenticate:
+   - Merges anonymous and authenticated identities using Segment's alias API
+   - Preserves conversation history across identity transitions
+
+### Configuration
+
+#### Required Environment Variables
+
+```bash
+# Segment Configuration
+SEGMENT_WRITE_KEY=your-segment-write-key           # Required: Segment source write key
+SUBJECT_RESOLVER=segment                           # Use Segment for identity resolution
+
+# Optional: Profile API (for customer lookup)
+SEGMENT_PROFILE_API_TOKEN=your-profile-api-token   # Optional: Profile API token for customer lookup
+SEGMENT_SPACE_ID=your-segment-space-id             # Optional: Segment space ID for Profile API  
+SEGMENT_REGION=us                                  # Optional: Region (us/eu), default: us
+```
+
+#### Setup Steps
+
+1. **Create Segment Source**:
+   - Log into your Segment workspace
+   - Create a new server-side source (Node.js)
+   - Copy the write key to `SEGMENT_WRITE_KEY`
+
+2. **Enable Profile API** (Optional but recommended):
+   - Enable Profile API in your Segment workspace
+   - Create a Profile API token
+   - Set `SEGMENT_PROFILE_API_TOKEN` and `SEGMENT_SPACE_ID`
+
+3. **Configure Subject Resolver**:
+   ```bash
+   SUBJECT_RESOLVER=segment
+   ```
+
+### Customer Profile Context
+
+When using Segment integration, the AI agent receives enriched customer context:
+
+```javascript
+// Example enriched metadata available to AI agent
+{
+  customerProfile: {
+    isExistingCustomer: true,
+    firstName: "John",
+    lastName: "Doe", 
+    email: "john@example.com",
+    phone: "+14155551234",
+    customerTier: "premium",
+    purchaseHistory: [...],
+    supportTickets: [...],
+    preferences: {...},
+    allTraits: {...} // All Segment traits
+  }
+}
+```
+
+This enables the AI agent to provide:
+- **Personalized Support**: Addresses customers by name and references their history
+- **Context-Aware Responses**: Understands customer tier, preferences, and past interactions
+- **Proactive Assistance**: Anticipates needs based on purchase and support history
+
+### Identity Resolution Flow
+
+```
+Customer Contact
+    ↓
+Check for existing anonymousId
+    ↓
+Profile API Lookup (phone/email/userId)
+    ↓ (if found)
+Enrich Context with Customer Data
+    ↓
+Generate Subject ID
+    ↓
+Send Identify Event to Segment
+    ↓
+Continue Conversation with Full Context
+```
+
+### Subject ID Formats
+
+The Segment resolver generates structured Subject IDs:
+
+- **Authenticated Users**: `segment_user_{userId}`
+- **Anonymous with Phone/Email**: `segment_{hash_of_identifier}`
+- **Purely Anonymous**: `segment_{random_hash}`
+
+### Caching & Performance
+
+- **Profile Cache**: 5-minute TTL cache for Profile API lookups
+- **Efficient Lookups**: Tries userId → email → phone in priority order
+- **Graceful Fallback**: Falls back to basic identity creation if Profile API fails
+- **Network Resilience**: Continues operation even if Segment is unavailable
+
+### Privacy & Security
+
+- **PII Protection**: Sensitive data is sanitized in logs
+- **Secure API Calls**: Uses proper authentication for Profile API
+- **Data Minimization**: Only collects necessary customer data
+- **Consent Compliance**: Respects customer data preferences from Segment
+
+### Example Usage Scenarios
+
+#### New Customer (Anonymous)
+```
+📱 SMS: "Hi, I need help with my order"
+🔍 Segment: Creates anonymous profile, tracks interaction
+🤖 Agent: "I'd be happy to help! Could you provide your order number?"
+```
+
+#### Existing Customer (Profile Found)
+```
+📱 SMS from +14155551234: "Hi, I need help"
+🔍 Segment: Finds profile for John Doe (Premium customer, 5 previous orders)
+🤖 Agent: "Hi John! I can see you're one of our premium customers. How can I help you today?"
+```
+
+#### Identity Merging (Anonymous → Authenticated)
+```
+🌐 Web Chat: Anonymous user asks about products
+📱 SMS: Same person texts from their phone number
+🔄 Segment: Merges identities, preserves conversation history
+🤖 Agent: Continues conversation with full context
+```
+
+### Testing Segment Integration
+
+Run the Segment resolver tests:
+
+```bash
+npm test -- tests/unit/segment-resolver.test.ts
+```
+
+The tests verify:
+- Identity resolution for various scenarios
+- Profile API integration
+- Error handling and fallbacks
+- Identity merging functionality
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **Profile API 404 Errors**: Normal for new customers - the system will create new profiles
+2. **Network Timeouts**: Check `SEGMENT_REGION` setting and network connectivity
+3. **Missing Customer Data**: Verify `SEGMENT_PROFILE_API_TOKEN` and `SEGMENT_SPACE_ID` configuration
+4. **Identity Conflicts**: Review Segment workspace for duplicate profiles
+
+#### Debug Logging
+
+Enable debug logging to troubleshoot Segment integration:
+
+```bash
+LOG_LEVEL=debug
+```
+
+This provides detailed logs for:
+- Profile API lookups and responses
+- Identity resolution decisions
+- Segment API calls and responses
+- Cache hits/misses and performance metrics
 
 ## Agent Capabilities
 
@@ -449,7 +681,8 @@ src/
 │   ├── output.ts
 │   └── index.ts
 ├── identity/         # Subject resolution
-│   └── subject-resolver.ts
+│   ├── subject-resolver.ts
+│   └── segment-resolver.ts
 ├── registry/         # Agent registry
 │   └── agent-registry.ts
 ├── services/         # Core services
@@ -602,6 +835,12 @@ npm install pg @types/pg
 
 These are only required if you configure `PERSISTENCE_ADAPTER=redis` or `PERSISTENCE_ADAPTER=postgres`.
 
+### Segment Analytics
+
+For Segment analytics integration (`SUBJECT_RESOLVER=segment`), the required dependency is already included:
+
+- `@segment/analytics-node` - Segment analytics client (included in package.json)
+
 ### Environment Variables
 
 #### Core Configuration
@@ -648,7 +887,14 @@ These are only required if you configure `PERSISTENCE_ADAPTER=redis` or `PERSIST
 - `HOST` - Server host (default: 0.0.0.0)
 
 #### Subject Resolution Configuration
-- `SUBJECT_RESOLVER` - Subject resolver type: phone, crm (default: phone)
+- `SUBJECT_RESOLVER` - Subject resolver type: phone, segment, crm (default: phone)
+
+#### Segment Analytics Configuration (when SUBJECT_RESOLVER=segment)
+*Note: Requires installing Segment client: `@segment/analytics-node` (already included in dependencies)*
+- `SEGMENT_WRITE_KEY` - Your Segment source write key (required)
+- `SEGMENT_PROFILE_API_TOKEN` - Profile API token for customer lookup (optional but recommended)
+- `SEGMENT_SPACE_ID` - Segment space ID for Profile API (optional, required if using Profile API)
+- `SEGMENT_REGION` - Segment region: us, eu (default: us)
 
 ## Features in Detail
 
