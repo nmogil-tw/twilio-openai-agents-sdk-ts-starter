@@ -2,6 +2,7 @@ import { logger } from '../../utils/logger';
 import { TwilioVoiceMessage, TwilioVoiceResponse } from './types';
 import { conversationService } from '../../services/conversationService';
 import { SubjectResolver, SubjectResolverRegistry } from '../../identity/subject-resolver';
+import { agentRegistry } from '../../registry/agent-registry';
 
 
 /**
@@ -23,6 +24,84 @@ export class VoiceSession {
       sessionId: this.sessionId,
       operation: 'voice_session_creation'
     });
+  }
+
+  /**
+   * Generate a context-aware greeting prompt for the AI agent
+   */
+  private generateGreetingPrompt(context: any): string {
+    const customerInfo = [];
+    const conversationInfo = [];
+    
+    // Add customer information if available
+    if (context.customerName) {
+      customerInfo.push(`Customer name: ${context.customerName}`);
+    }
+    if (context.customerPhone) {
+      customerInfo.push(`Phone: ${context.customerPhone}`);
+    }
+    if (context.customerEmail) {
+      customerInfo.push(`Email: ${context.customerEmail}`);
+    }
+    
+    // Add conversation context
+    const historyLength = context.conversationHistory?.length || 0;
+    if (historyLength > 0) {
+      conversationInfo.push(`This customer has contacted us ${historyLength} time${historyLength > 1 ? 's' : ''} before.`);
+      
+      // Add info about resolved issues
+      if (context.resolvedIssues?.length > 0) {
+        conversationInfo.push(`Previously resolved issues: ${context.resolvedIssues.join(', ')}`);
+      }
+      
+      // Add escalation level if elevated
+      if (context.escalationLevel > 0) {
+        conversationInfo.push(`Previous escalation level: ${context.escalationLevel}`);
+      }
+    } else {
+      conversationInfo.push('This is a new customer calling for the first time.');
+    }
+    
+    // Add customer profile data if available from metadata
+    if (context.metadata?.customerProfile) {
+      const profile = context.metadata.customerProfile;
+      if (profile.isExistingCustomer) {
+        conversationInfo.push('This is a known customer in our system.');
+      }
+    }
+    
+    // Add variation guidance to prevent repetitive greetings
+    const variationGuidance = context.conversationHistory?.length > 0 
+      ? 'IMPORTANT: This customer has called before. Vary your greeting style and wording to avoid repetition. Use different phrases than "Thank you for calling us again" or similar repetitive language.'
+      : 'This is a first-time caller, so use a welcoming new customer greeting.';
+
+    const prompt = `GREETING GENERATION TASK:
+
+You are a professional customer service AI agent. Generate a personalized phone greeting for this customer.
+
+CUSTOMER CONTEXT:
+${customerInfo.length > 0 ? customerInfo.join('\n') : 'No customer information available.'}
+
+CONVERSATION CONTEXT:
+${conversationInfo.join('\n')}
+
+VARIATION REQUIREMENT:
+${variationGuidance}
+
+GUIDELINES:
+- Keep the greeting concise (1-2 sentences max)
+- Be professional but warm and welcoming
+- If this is a returning customer, acknowledge that politely but vary your phrasing
+- If you know the customer's name, use it naturally
+- Don't mention specific previous issues unless very relevant
+- End by asking how you can help them today
+- This is a voice call, so speak naturally
+- VARY your greeting style - use different openings like "Hi [Name]!", "Good morning/afternoon [Name]", "Hello [Name], nice to hear from you", etc.
+- Avoid repeating the same phrases across different calls
+
+Generate ONLY the greeting text. Do not include any explanations or additional commentary.`;
+
+    return prompt;
   }
 
   /**
@@ -61,7 +140,7 @@ export class VoiceSession {
       this.setSetupData(setupData);
     }
 
-    // Generate context-aware greeting by resolving subject and loading conversation context
+    // Generate AI-powered context-aware greeting
     let greeting = 'Hello! I\'m your AI customer service assistant. How can I help you today?';
 
     try {
@@ -77,33 +156,100 @@ export class VoiceSession {
           timestamp: new Date().toISOString()
         };
 
-        // Resolve subject ID and get existing conversation context
+        // Resolve subject ID (this may enrich metadata with customerProfile)
         const subjectId = await this.subjectResolver.resolve(metadata);
+        
+        // Get existing conversation context
         const context = await conversationService.getContext(subjectId);
-
-        // Generate personalized greeting based on context
-        if (context.conversationHistory.length > 0) {
-          // Returning customer - use more personalized greeting
-          const customerName = context.customerName ? ` ${context.customerName}` : '';
-          greeting = `Hello${customerName}! Welcome back. I can see we've spoken before. How can I help you today?`;
-        } else if (context.customerName) {
-          // New conversation but we have customer info
-          greeting = `Hello ${context.customerName}! I\'m your AI customer service assistant. How can I help you today?`;
+        
+        // If the resolver enriched metadata with customer profile data, update context
+        if ((metadata as any).customerProfile) {
+          const profile = (metadata as any).customerProfile;
+          
+          context.metadata = {
+            ...context.metadata,
+            customerProfile: profile
+          };
+          
+          // Update direct context fields if available and not already set
+          if (profile.firstName && !context.customerName) {
+            context.customerName = `${profile.firstName} ${profile.lastName || ''}`.trim();
+          }
+          
+          if (profile.email && !context.customerEmail) {
+            context.customerEmail = profile.email;
+          }
+          
+          // Save the enriched context
+          await conversationService.saveContext(subjectId, context);
         }
-        // Otherwise use default greeting (already set above)
 
-        logger.info('Context-aware greeting generated', {
+        // Generate AI-powered greeting using the customer context
+        const agent = await agentRegistry.getDefault();
+        const greetingPrompt = this.generateGreetingPrompt(context);
+        
+        logger.debug('Generating AI greeting', {
           sessionId: this.sessionId,
           subjectId,
-          operation: 'voice_context_greeting'
+          operation: 'voice_ai_greeting_start'
         }, {
           hasHistory: context.conversationHistory.length > 0,
           hasCustomerName: !!context.customerName,
-          greetingType: context.conversationHistory.length > 0 ? 'returning' : 'new'
+          promptLength: greetingPrompt.length
         });
+
+        // Use a separate temporary subject ID for greeting generation to avoid polluting conversation history
+        const greetingSubjectId = `greeting_${subjectId}_${Date.now()}`;
+        
+        // Use the conversation service to generate the greeting
+        const result = await conversationService.processConversationTurn(
+          agent,
+          greetingSubjectId,
+          greetingPrompt,
+          { 
+            showProgress: false, 
+            enableDebugLogs: false, 
+            stream: false,
+            timeoutMs: 10000 // Shorter timeout for greetings
+          }
+        );
+
+        // Extract the greeting from the AI response
+        if (result.finalOutput && result.finalOutput.trim()) {
+          greeting = result.finalOutput.trim();
+          
+          logger.info('AI-generated greeting created', {
+            sessionId: this.sessionId,
+            subjectId,
+            operation: 'voice_ai_greeting_success'
+          }, {
+            greetingLength: greeting.length,
+            hasHistory: context.conversationHistory.length > 0,
+            hasCustomerName: !!context.customerName
+          });
+        } else {
+          logger.warn('AI greeting generation returned empty result, using default', {
+            sessionId: this.sessionId,
+            subjectId,
+            operation: 'voice_ai_greeting_empty'
+          });
+        }
+
+        // Clean up the temporary greeting context to prevent memory leaks
+        try {
+          await conversationService.endSession(greetingSubjectId);
+        } catch (cleanupError) {
+          logger.debug('Failed to cleanup greeting context (non-critical)', {
+            sessionId: this.sessionId,
+            operation: 'voice_greeting_cleanup'
+          }, {
+            greetingSubjectId,
+            error: (cleanupError as Error).message
+          });
+        }
       }
     } catch (error) {
-      logger.warn('Failed to generate context-aware greeting, using default', {
+      logger.warn('Failed to generate AI greeting, using default', {
         sessionId: this.sessionId,
         operation: 'voice_setup_fallback'
       }, { 
