@@ -29,10 +29,12 @@ Customer Support Agent (Single Comprehensive Agent)
 └── Escalation to Human Agents
 ```
 
+**Note**: This platform uses a single, comprehensive AI agent that intelligently handles all types of customer inquiries with specialized guidance for different domains, rather than multiple separate agents.
+
 ### Core Components
 
 - **Customer Support Agent**: Single intelligent agent handling all customer inquiries with specialized guidance for different domains
-- **Agent Registry**: Dynamic agent loading and configuration system
+- **Agent Registry**: Configuration system for agent loading (currently hosts the main customer support agent)
 - **Streaming Service**: Real-time response streaming with interruption handling
 - **Context Manager**: Session and conversation state management
 - **State Persistence**: RunState persistence for conversation continuity across restarts
@@ -138,22 +140,19 @@ The server provides webhook endpoints for Twilio SMS and Voice integration:
 #### Order Inquiry
 ```
 👤 You: I need to check the status of my order ORD_12345
-🔄 Processing with Order Management Agent: "I need to check the status of my order ORD_12345"
-🤖 Agent: I'll look up your order for you right away...
+🤖 Customer Support Agent: I'll look up your order for you right away. Let me check the status of order ORD_12345...
 ```
 
 #### Billing Question
 ```
 👤 You: I have a question about my last bill
-🔄 Processing with Billing Agent: "I have a question about my last bill"
-🤖 Agent: I'd be happy to help with your billing inquiry...
+🤖 Customer Support Agent: I'd be happy to help with your billing inquiry. Let me verify your account details and look into your recent charges...
 ```
 
 #### Technical Support
 ```
 👤 You: My device is not working properly
-🔄 Processing with Technical Support Agent: "My device is not working properly"
-🤖 Agent: I understand you're having technical issues. Let me help troubleshoot...
+🤖 Customer Support Agent: I understand you're having technical issues. Let me help troubleshoot this problem. Can you describe what specific issues you're experiencing?
 ```
 
 ## Voice Channel (Twilio Integration)
@@ -187,7 +186,7 @@ ngrok http 3001
 #### Voice Features
 - **🎤 Speech-to-Text**: Twilio handles voice transcription automatically
 - **🗣️ Text-to-Speech**: Agent responses are converted to natural speech
-- **🔀 Agent Routing**: Same intelligent routing as CLI - triage → specialist agents
+- **🤖 Single Agent**: Uses the same comprehensive Customer Support Agent for all inquiries
 - **📞 DTMF Support**: Callers can press keys for quick actions (0 for human agent)
 - **⚡ Real-time Processing**: Immediate AI responses during phone calls
 - **🛡️ Same Security**: Uses identical guardrails and approval flows
@@ -206,7 +205,7 @@ WebSocket Connection (same server as SMS)
     ↓
 Voice Handler (integrated)
     ↓
-Same Agent System (Triage → Specialists)
+Customer Support Agent (single comprehensive agent)
     ↓ (Text → Speech)
 Back to Caller
 ```
@@ -620,8 +619,9 @@ A single, comprehensive AI agent that intelligently handles all types of custome
 - **Escalation Management**: Intelligent escalation to human agents when needed
 
 #### Available Tools
+The Customer Support Agent has access to the following tools:
 - **Customer Lookup Tool**: Retrieve customer information and history
-- **Intent Classification Tool**: Analyze and categorize customer requests
+- **Intent Classification Tool**: Analyze and categorize customer requests  
 - **Order Lookup Tool**: Access order details and status information
 - **Order Status Tool**: Get real-time tracking and delivery information
 - **Process Refund Tool**: Handle refund requests (with approval workflow)
@@ -729,45 +729,26 @@ export default {
 
 ### Adding a New Agent
 
-To add a new agent to the system:
+The system currently uses a single comprehensive Customer Support Agent that handles all customer inquiries with specialized guidance. This approach provides consistent service while being easier to maintain.
 
-1. **Create your agent file** (e.g., `src/agents/new-agent.ts`):
-```typescript
-import { Agent } from '@openai/agents';
-import { inputGuardrails } from '../guardrails/input';
-import { outputGuardrails } from '../guardrails/output';
-import { /* your tools */ } from '../tools';
+If you need to extend the system with additional specialized agents, you can follow this pattern:
 
-export const newAgent = new Agent({
-  name: 'New Agent',
-  instructions: 'Your agent instructions...',
-  tools: [/* your tools */],
-  inputGuardrails,
-  outputGuardrails,
-  model: 'gpt-4o-mini'
-});
-```
+1. **Create your agent file** (e.g., `src/agents/specialized-agent.ts`) following the same pattern as `customer-support.ts`
+2. **Add to agents configuration** in `agents.config.ts`  
+3. **Update the agent registry** to handle multiple agents if needed
 
-2. **Add to agents configuration** in `agents.config.ts`:
-```typescript
-export default {
-  defaultAgent: 'customer-support',
-  agents: {
-    'customer-support': 'src/agents/customer-support.ts',
-    'new-agent': 'src/agents/new-agent.ts',
-  },
-} as const;
-```
+The current single-agent approach is recommended for most use cases as it provides comprehensive coverage with specialized domain guidance.
 
-3. **Update the default agent** if needed, or use the agent registry to access it:
+#### Using the Agent Registry
+
 ```typescript
 import { agentRegistry } from './src/registry/agent-registry';
 
-// Get the default agent
+// Get the default agent (customer-support)
 const agent = await agentRegistry.getDefault();
 
-// Or get a specific agent
-const specificAgent = await agentRegistry.get('new-agent');
+// Or get a specific agent by name
+const specificAgent = await agentRegistry.get('customer-support');
 ```
 
 ### Agent Registry System
@@ -779,13 +760,11 @@ The agent registry provides dynamic loading and management of agents:
 - **Error Handling**: Graceful fallback when agents fail to load
 - **Singleton Pattern**: Single instance manages all agent access
 
-```typescript
-// The registry automatically handles:
-// - Loading agents from configured paths
-// - Caching loaded agents for performance
-// - Error handling and logging
-// - Type-safe agent access
-```
+The registry automatically handles:
+- Loading agents from configured paths
+- Caching loaded agents for performance  
+- Error handling and logging
+- Type-safe agent access
 
 ### Adding New Tools
 
@@ -845,12 +824,13 @@ For Segment analytics integration (`SUBJECT_RESOLVER=segment`), the required dep
 
 #### Core Configuration
 - `OPENAI_API_KEY` - Your OpenAI API key (required)
-- `AGENT_MODEL` - OpenAI model to use (e.g., gpt-4o, gpt-4o-mini, gpt-3.5-turbo)
+- `AGENT_MODEL` - OpenAI model to use (default: gpt-4o-mini)
 - `WORKFLOW_NAME` - Name for the workflow (default: "Customer Service Agent")
 - `LOG_LEVEL` - Logging level: debug, info, warn, error (default: info)
 - `TRACING_ENABLED` - Enable SDK tracing (default: true)
 - `MAX_TURNS` - Maximum conversation turns (default: 10)
 - `STREAM_TIMEOUT_MS` - Stream timeout in milliseconds (default: 30000)
+- `NODE_ENV` - Environment mode (development, production, test)
 
 #### Persistence Configuration
 - `PERSISTENCE_ADAPTER` - Persistence backend: file, redis, postgres (default: file)
@@ -884,7 +864,8 @@ For Segment analytics integration (`SUBJECT_RESOLVER=segment`), the required dep
 
 #### Server Configuration
 - `PORT` - Server port (default: 3001)
-- `HOST` - Server host (default: 0.0.0.0)
+- `PORT_VOICE` - Voice server port (default: 3001, same as main server)
+- `TWILIO_WEBSOCKET_URL` - Twilio WebSocket URL for voice connections
 
 #### Subject Resolution Configuration
 - `SUBJECT_RESOLVER` - Subject resolver type: phone, segment, crm (default: phone)
