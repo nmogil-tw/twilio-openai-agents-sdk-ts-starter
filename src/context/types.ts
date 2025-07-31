@@ -9,6 +9,7 @@ export interface CustomerContext {
   escalationLevel: number;
   lastAgent?: string;
   sessionStartTime: Date;
+  lastActiveAt: Date;
   resolvedIssues: string[];
   metadata: Record<string, any>;
 }

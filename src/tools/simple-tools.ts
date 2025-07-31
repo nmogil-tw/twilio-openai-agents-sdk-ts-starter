@@ -4,7 +4,7 @@ import { logger } from '../utils/logger';
 
 // Simple customer lookup tool
 export const simpleCustomerLookupTool = tool({
-  name: 'lookup_customer',
+  name: 'simple_lookup_customer',
   description: 'Retrieve customer information by email, phone, or customer ID',
   parameters: z.object({
     identifier: z.string()
@@ -54,7 +54,7 @@ export const simpleCustomerLookupTool = tool({
 
 // Simple order lookup tool
 export const simpleOrderLookupTool = tool({
-  name: 'lookup_order',
+  name: 'simple_lookup_order',
   description: 'Retrieve order information by order ID',
   parameters: z.object({
     orderId: z.string()
@@ -109,7 +109,7 @@ export const simpleOrderLookupTool = tool({
 
 // Simple escalation tool
 export const simpleEscalationTool = tool({
-  name: 'escalate_to_human',
+  name: 'simple_escalate_to_human',
   description: 'Create a support ticket for human agent intervention',
   parameters: z.object({
     reason: z.string(),

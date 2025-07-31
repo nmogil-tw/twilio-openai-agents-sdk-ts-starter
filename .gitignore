@@ -1,6 +1,10 @@
 node_modules
 .env
 logs/
+docs/
+.claude/
+data/
+notes/
 
 # Build output
 dist/
@@ -38,3 +42,5 @@ coverage/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+building_notes/

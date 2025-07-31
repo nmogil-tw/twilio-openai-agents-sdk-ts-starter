@@ -1,87 +1,140 @@
-import { run, Agent, Runner, type AgentInputItem, type RunItem } from '@openai/agents';
 import { logger } from '../../utils/logger';
-import { CustomerContext } from '../../context/types';
-import { contextManager } from '../../context/manager';
-import { customerSupportAgent } from '../../agents/customer-support';
+import { TwilioVoiceMessage, TwilioVoiceResponse } from './types';
+import { conversationService } from '../../services/conversationService';
+import { SubjectResolver, SubjectResolverRegistry } from '../../identity/subject-resolver';
+import { agentRegistry } from '../../registry/agent-registry';
 
-export interface TwilioVoiceMessage {
-  type: 'setup' | 'prompt' | 'dtmf' | 'interrupt' | 'info';
-  // Setup fields
-  sessionId?: string;
-  callSid?: string;
-  from?: string;
-  to?: string;
-  // Prompt fields  
-  voicePrompt?: string;
-  // DTMF fields
-  digits?: {
-    digit: string;
-  };
-  // Generic data
-  data?: any;
-}
 
-export interface TwilioVoiceResponse {
-  type: 'text' | 'end' | 'dtmf' | 'info';
-  token?: string;
-  last?: boolean;
-  handoffData?: string;
-}
-
-// Helper: return a human-readable label for a RunItem
-function getRunItemLabel(item: RunItem): string {
-  switch (item.type) {
-    case 'tool_call_item':
-      // rawItem for tool calls can be function_call or hosted_tool_call (both have name)
-      if (item.rawItem && 'name' in item.rawItem) {
-        return `tool call: ${item.rawItem.name}`;
-      }
-      return 'tool call: unknown';
-    case 'tool_call_output_item':
-      // rawItem for tool outputs can be function_call_result (has name) or computer_call_result (no name)
-      if (item.rawItem && 'name' in item.rawItem) {
-        return `tool output: ${item.rawItem.name}`;
-      }
-      return 'tool output: computer action';
-    case 'tool_approval_item':
-      // rawItem for tool approval can be function_call or hosted_tool_call (both have name)
-      if (item.rawItem && 'name' in item.rawItem) {
-        return `tool approval: ${item.rawItem.name}`;
-      }
-      return 'tool approval: unknown';
-    case 'message_output_item':
-      return 'message output';
-    case 'reasoning_item':
-      return 'reasoning';
-    case 'handoff_call_item':
-      // rawItem for handoff calls is function_call (has name)
-      if (item.rawItem && 'name' in item.rawItem) {
-        return `handoff call: ${item.rawItem.name}`;
-      }
-      return 'handoff call: unknown';
-    case 'handoff_output_item':
-      return 'handoff output';
-    default:
-      return 'unknown item';
-  }
-}
-
+/**
+ * Simplified VoiceSession class that manages WebSocket connection state.
+ * 
+ * Agent processing is now handled by the unified conversationService
+ * through the VoiceAdapter's BaseAdapter integration.
+ */
 export class VoiceSession {
-  private context: CustomerContext;
-  private currentAgent: Agent = customerSupportAgent;
   private sessionId: string;
-  private runner: Runner;
+  private setupData?: TwilioVoiceMessage;
+  private subjectResolver: SubjectResolver;
 
-  constructor(sessionId?: string) {
+  constructor(sessionId?: string, subjectResolver?: SubjectResolver) {
     this.sessionId = sessionId || `voice-${Date.now()}`;
-    this.context = contextManager.createSession(this.sessionId);
-    // Create a Runner tied to this voice session for native threading
-    this.runner = new Runner({ groupId: this.sessionId });
+    this.subjectResolver = subjectResolver || SubjectResolverRegistry.getInstance().getDefault();
     
     logger.info('Voice session created', {
       sessionId: this.sessionId,
       operation: 'voice_session_creation'
     });
+  }
+
+  /**
+   * Generate a context-aware greeting prompt for the AI agent
+   */
+  private generateGreetingPrompt(context: any): string {
+    const customerInfo = [];
+    const conversationInfo = [];
+    
+    // Add customer information if available
+    if (context.customerName) {
+      customerInfo.push(`Customer name: ${context.customerName}`);
+    }
+    if (context.customerPhone) {
+      customerInfo.push(`Phone: ${context.customerPhone}`);
+    }
+    if (context.customerEmail) {
+      customerInfo.push(`Email: ${context.customerEmail}`);
+    }
+    
+    // Determine customer status - prioritize Segment profile data over conversation history
+    let isExistingCustomer = false;
+    let customerStatusInfo = '';
+    
+    // First check Segment profile data
+    if (context.metadata?.customerProfile) {
+      const profile = context.metadata.customerProfile;
+      if (profile.isExistingCustomer) {
+        isExistingCustomer = true;
+        customerStatusInfo = 'This is a known customer in our system with an existing profile.';
+      }
+    }
+    
+    // If no profile data available, fall back to conversation history
+    if (!isExistingCustomer && !context.metadata?.customerProfile) {
+      const historyLength = context.conversationHistory?.length || 0;
+      if (historyLength > 0) {
+        isExistingCustomer = true;
+        customerStatusInfo = `This customer has contacted us ${historyLength} time${historyLength > 1 ? 's' : ''} before.`;
+      } else {
+        customerStatusInfo = 'This appears to be a new customer calling for the first time.';
+      }
+    }
+    
+    // Add the determined customer status
+    conversationInfo.push(customerStatusInfo);
+    
+    // Add additional conversation context for existing customers
+    if (isExistingCustomer) {
+      const historyLength = context.conversationHistory?.length || 0;
+      if (historyLength > 0) {
+        conversationInfo.push(`Previous conversation history: ${historyLength} interaction${historyLength > 1 ? 's' : ''} on record.`);
+        
+        // Add info about resolved issues
+        if (context.resolvedIssues?.length > 0) {
+          conversationInfo.push(`Previously resolved issues: ${context.resolvedIssues.join(', ')}`);
+        }
+        
+        // Add escalation level if elevated
+        if (context.escalationLevel > 0) {
+          conversationInfo.push(`Previous escalation level: ${context.escalationLevel}`);
+        }
+      }
+    }
+    
+    // Add variation guidance to prevent repetitive greetings
+    const variationGuidance = isExistingCustomer
+      ? 'IMPORTANT: This is an existing customer in our system. Acknowledge their status appropriately and vary your greeting style to avoid repetition. Use different phrases and avoid generic "new customer" language.'
+      : 'This appears to be a new customer, so use a welcoming first-time caller greeting.';
+
+    const prompt = `GREETING GENERATION TASK:
+
+You are a professional customer service AI agent. Generate a personalized phone greeting for this customer.
+
+CUSTOMER CONTEXT:
+${customerInfo.length > 0 ? customerInfo.join('\n') : 'No customer information available.'}
+
+CONVERSATION CONTEXT:
+${conversationInfo.join('\n')}
+
+VARIATION REQUIREMENT:
+${variationGuidance}
+
+GUIDELINES:
+- Keep the greeting concise (1-2 sentences max)
+- Be professional but warm and welcoming
+- If this is an existing customer, acknowledge their known status appropriately without calling them "new"
+- If you know the customer's name, use it naturally
+- Don't mention specific previous issues unless very relevant
+- End by asking how you can help them today
+- This is a voice call, so speak naturally
+- VARY your greeting style - use different openings like "Hi [Name]!", "Good morning/afternoon [Name]", "Hello [Name], nice to hear from you", etc.
+- NEVER refer to existing customers as "new customers" - this is incorrect and confusing
+
+Generate ONLY the greeting text. Do not include any explanations or additional commentary.`;
+
+    return prompt;
+  }
+
+  /**
+   * Store setup data for later use by the adapter
+   */
+  setSetupData(data: TwilioVoiceMessage): void {
+    this.setupData = data;
+  }
+
+  /**
+   * Get stored setup data
+   */
+  getSetupData(): TwilioVoiceMessage | undefined {
+    return this.setupData;
   }
 
   async handleSetup(setupData?: any): Promise<TwilioVoiceResponse> {
@@ -101,59 +154,144 @@ export class VoiceSession {
     }
     console.log(`   Time: ${new Date().toISOString()}`);
 
-    // Extract customer info from setup data if available
-    if (setupData?.from) {
-      this.context = contextManager.updateContext(this.sessionId, {
-        customerPhone: setupData.from
-      });
+    // Store setup data for the adapter
+    if (setupData) {
+      this.setSetupData(setupData);
     }
 
-    // Generate initial greeting using the agent system
+    // Generate AI-powered context-aware greeting
+    let greeting = 'Hello! I\'m your AI customer service assistant. How can I help you today?';
+
     try {
-      const greetingPrompt = 'Generate a warm greeting for a customer calling for customer service. Keep it brief and professional.';
-      
-      const stream = await this.runner.run(this.currentAgent, greetingPrompt, { 
-        stream: false,
-        maxTurns: 5
-      });
+      if (setupData) {
+        // Extract metadata similar to how VoiceAdapter does it
+        const metadata = {
+          phone: setupData.from,
+          from: setupData.from,
+          callSid: setupData.callSid,
+          channel: 'voice',
+          adapterName: 'voice',
+          messageId: setupData.callSid,
+          timestamp: new Date().toISOString()
+        };
 
-      const greeting = stream.finalOutput || 'Hello! I\'m your AI customer service assistant. How can I help you today?';
+        // Resolve subject ID (this may enrich metadata with customerProfile)
+        const subjectId = await this.subjectResolver.resolve(metadata);
+        
+        // Get existing conversation context
+        const context = await conversationService.getContext(subjectId);
+        
+        // If the resolver enriched metadata with customer profile data, update context
+        if ((metadata as any).customerProfile) {
+          const profile = (metadata as any).customerProfile;
+          
+          context.metadata = {
+            ...context.metadata,
+            customerProfile: profile
+          };
+          
+          // Update direct context fields if available and not already set
+          if (profile.firstName && !context.customerName) {
+            context.customerName = `${profile.firstName} ${profile.lastName || ''}`.trim();
+          }
+          
+          if (profile.email && !context.customerEmail) {
+            context.customerEmail = profile.email;
+          }
+          
+          // Save the enriched context
+          await conversationService.saveContext(subjectId, context);
+        }
 
-      // Console logging for AI response
-      console.log(`\n🤖 [AI RESPONSE] Initial Greeting`);
-      console.log(`   Response: "${greeting}"`);
-      console.log(`   Agent: ${this.currentAgent.name}`);
-      console.log(`   Time: ${new Date().toISOString()}`);
+        // Generate AI-powered greeting using the customer context
+        const agent = await agentRegistry.getDefault();
+        const greetingPrompt = this.generateGreetingPrompt(context);
+        
+        logger.debug('Generating AI greeting', {
+          sessionId: this.sessionId,
+          subjectId,
+          operation: 'voice_ai_greeting_start'
+        }, {
+          hasHistory: context.conversationHistory.length > 0,
+          hasCustomerName: !!context.customerName,
+          promptLength: greetingPrompt.length
+        });
 
-      // Add to conversation history
-      const systemMessage = { role: 'system' as const, content: greetingPrompt };
-      const assistantMessage = { role: 'assistant' as const, content: greeting };
-      contextManager.addToHistory(this.sessionId, systemMessage);
-      contextManager.addToHistory(this.sessionId, assistantMessage);
+        // Use a separate temporary subject ID for greeting generation to avoid polluting conversation history
+        const greetingSubjectId = `greeting_${subjectId}_${Date.now()}`;
+        
+        // Use the conversation service to generate the greeting
+        const result = await conversationService.processConversationTurn(
+          agent,
+          greetingSubjectId,
+          greetingPrompt,
+          { 
+            showProgress: false, 
+            enableDebugLogs: false, 
+            stream: false,
+            timeoutMs: 10000 // Shorter timeout for greetings
+          }
+        );
 
-      return {
-        type: 'text',
-        token: greeting,
-        last: true
-      };
+        // Extract the greeting from the AI response
+        if (result.finalOutput && result.finalOutput.trim()) {
+          greeting = result.finalOutput.trim();
+          
+          logger.info('AI-generated greeting created', {
+            sessionId: this.sessionId,
+            subjectId,
+            operation: 'voice_ai_greeting_success'
+          }, {
+            greetingLength: greeting.length,
+            hasHistory: context.conversationHistory.length > 0,
+            hasCustomerName: !!context.customerName
+          });
+        } else {
+          logger.warn('AI greeting generation returned empty result, using default', {
+            sessionId: this.sessionId,
+            subjectId,
+            operation: 'voice_ai_greeting_empty'
+          });
+        }
 
+        // Clean up the temporary greeting context to prevent memory leaks
+        try {
+          await conversationService.endSession(greetingSubjectId);
+        } catch (cleanupError) {
+          logger.debug('Failed to cleanup greeting context (non-critical)', {
+            sessionId: this.sessionId,
+            operation: 'voice_greeting_cleanup'
+          }, {
+            greetingSubjectId,
+            error: (cleanupError as Error).message
+          });
+        }
+      }
     } catch (error) {
-      logger.error('Error generating greeting', error as Error, {
+      logger.warn('Failed to generate AI greeting, using default', {
         sessionId: this.sessionId,
-        operation: 'voice_setup'
+        operation: 'voice_setup_fallback'
+      }, { 
+        error: (error as Error).message 
       });
-
-      return {
-        type: 'text',
-        token: 'Hello! I\'m your AI customer service assistant. How can I help you today?',
-        last: true
-      };
+      // greeting remains the default value
     }
+
+    console.log(`\n🤖 [AI RESPONSE] Initial Greeting`);
+    console.log(`   Response: "${greeting}"`);
+    console.log(`   Time: ${new Date().toISOString()}`);
+
+    return {
+      type: 'text',
+      token: greeting,
+      last: true
+    };
   }
 
   async handlePrompt(transcript: string): Promise<TwilioVoiceResponse> {
+    // This method is now a fallback - main processing is handled by VoiceAdapter
     if (!transcript || transcript.trim().length === 0) {
-      console.log(`\n🗣️ [USER SPEECH] Empty/Silent`);
+      console.log(`\n🗣️ [USER SPEECH] Empty/Silent (fallback)`);
       console.log(`   Session: ${this.sessionId}`);
       console.log(`   Time: ${new Date().toISOString()}`);
       
@@ -164,189 +302,16 @@ export class VoiceSession {
       };
     }
 
-    // Console logging for user speech
-    console.log(`\n🗣️ [USER SPEECH] Transcript Received`);
-    console.log(`   Session: ${this.sessionId}`);
-    console.log(`   User Said: "${transcript}" (${transcript.length} chars)`);
-    console.log(`   Time: ${new Date().toISOString()}`);
-
-    logger.info('Processing voice prompt', {
+    logger.warn('Using fallback voice prompt handler', {
       sessionId: this.sessionId,
-      operation: 'voice_prompt_processing'
-    }, { transcriptLength: transcript.length });
+      operation: 'voice_prompt_fallback'
+    });
 
-    try {
-      // Extract customer information from transcript
-      const extracted = contextManager.extractCustomerInfo(transcript);
-      if (extracted.email || extracted.orderNumber || extracted.phone) {
-        this.context = contextManager.updateContext(this.sessionId, {
-          customerEmail: extracted.email,
-          currentOrder: extracted.orderNumber,
-          customerPhone: extracted.phone
-        });
-      }
-
-      // Add user input to conversation history
-      const userMessage = { role: 'user' as const, content: transcript };
-      contextManager.addToHistory(this.sessionId, userMessage);
-      // Keep local copy in sync
-      this.context.conversationHistory.push(userMessage);
-
-      // Prepare input items: include prior history for context
-      const inputItems: AgentInputItem[] = this.context.conversationHistory
-        .filter((i: any) => i && i.role && i.content)
-        .map((i: any) => ({ 
-          role: i.role, 
-          content: typeof i.content === 'string' ? i.content : JSON.stringify(i.content)
-        }))
-        .slice(-10); // keep last 10 turns to stay within context limits
-
-      // The latest user message is already in history array, so we use it directly
-
-      let stream = await this.runner.run(this.currentAgent, inputItems, { 
-        stream: false,
-        maxTurns: 10
-      });
-
-      // === 1) Handle interruptions (human-in-the-loop) ===
-      if (stream.interruptions?.length) {
-        logger.info('Voice session interruptions detected', {
-          sessionId: this.sessionId,
-          operation: 'voice_interruption_handling'
-        }, { 
-          interruptionCount: stream.interruptions.length 
-        });
-
-        // For voice, we'll auto-approve low-risk actions but log them
-        for (const interruption of stream.interruptions) {
-          // In a production system, you might have different approval logic for voice
-          // For now, we'll approve customer lookup and intent classification automatically
-          const toolName = ("rawItem" in interruption && (interruption as any).rawItem && "name" in (interruption as any).rawItem)
-            ? (interruption as any).rawItem.name
-            : "unknown";
-          const autoApproveTools = ['lookup_customer', 'classify_intent'];
-          
-          if (autoApproveTools.includes(toolName)) {
-            stream.state.approve(interruption);
-            logger.info('Voice interruption auto-approved', {
-              sessionId: this.sessionId,
-              operation: 'voice_interruption_approval',
-              toolName
-            });
-          } else {
-            // For escalation or other sensitive tools, require manual approval
-            stream.state.approve(interruption); // Auto-approve for demo, but log it
-            logger.warn('Voice interruption auto-approved (should be manual)', {
-              sessionId: this.sessionId,
-              operation: 'voice_interruption_approval',
-              toolName
-            });
-          }
-        }
-
-        // Resume execution after handling interruptions and capture the updated stream
-        stream = await this.runner.run(this.currentAgent, stream.state, { stream: false });
-      }
-
-      // === 2) Handle handoffs (agent routing) ===
-      // If the triage agent routed the request to a specialist, we'll loop until we get a finalOutput.
-      if (!stream.finalOutput) {
-        // Look for a handoff_output_item among newItems
-        const handoffItem: any = stream.newItems.find((item: any) => item.type === 'handoff_output_item');
-        if (handoffItem && handoffItem.targetAgent) {
-          // Switch to the target agent and continue the run
-          this.currentAgent = handoffItem.targetAgent;
-
-          logger.info('Voice session agent handoff', {
-            sessionId: this.sessionId,
-            operation: 'voice_handoff',
-            fromAgent: handoffItem.sourceAgent?.name ?? 'Unknown',
-            toAgent: this.currentAgent.name
-          });
-
-          // Continue running the conversation state with the new agent
-          stream = await this.runner.run(this.currentAgent, stream.state, { stream: false });
-        }
-      }
-
-      // Update current agent after potential handoffs (if available)
-      // Note: currentAgent may not be available in all SDK versions, so we keep current agent
-
-      // Add agent responses to conversation history
-      stream.newItems.forEach(item => {
-        contextManager.addToHistory(this.sessionId, item);
-      });
-
-      // Determine appropriate response
-      let response: string | undefined = stream.finalOutput;
-
-      // If no finalOutput, attempt to derive from last assistant message in newItems
-      if (!response) {
-        const lastAssistantMsg = [...stream.newItems].reverse().find((item: any) => item.type === 'message_output_item' && item.role === 'assistant');
-        if (lastAssistantMsg && 'content' in lastAssistantMsg) {
-          response = (lastAssistantMsg as any).content;
-        }
-      }
-
-      // Fallbacks:
-      if (!response) {
-        // If this is the very first user turn (no previous user messages recorded), politely ask for input
-        const priorUserTurns = this.context.conversationHistory.filter(m => m.role === 'user');
-        if (priorUserTurns.length === 0) {
-          response = 'Hello! How can I assist you today?';
-        } else {
-          response = 'I apologize, but I\'m having trouble processing your request right now.';
-        }
-      }
-
-      // Console logging for AI response
-      console.log(`\n🤖 [AI RESPONSE] Processing Complete`);
-      console.log(`   Session: ${this.sessionId}`);
-      console.log(`   Response: "${response}" (${response.length} chars)`);
-      console.log(`   Agent: ${this.currentAgent.name}`);
-      console.log(`   New Items: ${stream.newItems.length}`);
-      console.log(`   Time: ${new Date().toISOString()}`);
-      
-      // Log any tool executions that occurred
-      if (stream.newItems.length > 0) {
-        console.log('   Tools/Actions Executed:');
-        stream.newItems.forEach((item, i) => {
-          const label = getRunItemLabel(item as RunItem);
-          console.log(`      ${i + 1}. ${label}`);
-        });
-      }
-
-      logger.info('Voice prompt processing completed', {
-        sessionId: this.sessionId,
-        operation: 'voice_prompt_completion'
-      }, {
-        responseLength: response.length,
-        currentAgent: this.currentAgent.name,
-        newItemsCount: stream.newItems.length
-      });
-
-      return {
-        type: 'text',
-        token: response,
-        last: true
-      };
-
-    } catch (error) {
-      // Log full error to console for troubleshooting
-      // eslint-disable-next-line no-console
-      console.error('\n[VOICE ERROR]', error);
-
-      logger.error('Voice prompt processing failed', error as Error, {
-        sessionId: this.sessionId,
-        operation: 'voice_prompt_processing'
-      });
-
-      return {
-        type: 'text',
-        token: 'I apologize, but I\'m experiencing technical difficulties. Let me transfer you to a human agent who can assist you better.',
-        last: true
-      };
-    }
+    return {
+      type: 'text',
+      token: 'I\'m processing your request through the conversation service. Please wait a moment.',
+      last: true
+    };
   }
 
   async handleDtmf(dtmf: string): Promise<TwilioVoiceResponse> {
@@ -425,19 +390,12 @@ export class VoiceSession {
     logger.info('Voice session cleanup', {
       sessionId: this.sessionId,
       operation: 'voice_session_cleanup'
-    }, {
-      duration: Date.now() - this.context.sessionStartTime.getTime(),
-      messageCount: this.context.conversationHistory.length
     });
-
-    contextManager.cleanupSession(this.sessionId);
+    // Session cleanup is now handled by conversationService through the adapter
   }
 
   getSessionId(): string {
     return this.sessionId;
   }
 
-  getContext(): CustomerContext {
-    return this.context;
-  }
 }

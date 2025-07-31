@@ -1,14 +1,13 @@
 import { Agent } from '@openai/agents';
-import { 
-  customerLookupTool,
-  orderLookupTool, 
-  trackingTool, 
-  processRefundTool,
-  escalateToHumanTool,
-  sendSmsTool
-} from '../tools';
 import { inputGuardrails } from '../guardrails/input';
 import { outputGuardrails } from '../guardrails/output';
+
+// Import tools directly
+import { customerLookupTool, intentClassificationTool } from '../tools/customer';
+import { orderLookupTool, trackingTool, processRefundTool } from '../tools/orders';
+import { orderStatus } from '../tools/order-status';
+import { escalateToHumanTool } from '../tools/escalation';
+import { sendSmsTool } from '../tools/sms';
 
 export const customerSupportAgent = new Agent({
   name: 'Customer Support Agent',
@@ -68,14 +67,16 @@ export const customerSupportAgent = new Agent({
 - If you cannot resolve an issue, escalate appropriately
 - Follow all security and privacy guidelines`,
 
-  // All available tools for comprehensive support
+  // Import tools directly
   tools: [
     customerLookupTool,
+    intentClassificationTool,
     orderLookupTool,
-    trackingTool,
     processRefundTool,
+    trackingTool,
     escalateToHumanTool,
-    sendSmsTool
+    sendSmsTool,
+    orderStatus
   ],
 
   // Apply security guardrails
